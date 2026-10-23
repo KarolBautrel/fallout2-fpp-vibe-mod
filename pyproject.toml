@@ -7,13 +7,14 @@ name = "fallout2-perspective-remix"
 version = "0.1.0"
 description = "Tools and experiments for an ISO/TPP renderer using a legally owned Fallout 2 installation."
 requires-python = ">=3.13"
-dependencies = [
+dependencies = []
+
+[project.optional-dependencies]
+tools = [
   "construct>=2.10,<3",
   "pillow>=11,<13",
   "rich>=13,<15",
 ]
-
-[dependency-groups]
 dev = [
   "pytest>=8,<10",
   "ruff>=0.12,<1",

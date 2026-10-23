@@ -37,7 +37,7 @@ try {
     }
 
     if ($InstallDependencies) {
-        & $venvPython -m pip install --editable "$root[dev]"
+        & $venvPython -m pip install --editable "$root[dev,tools]"
         Assert-LastExitCode 'Instalacja zależności projektu'
     }
 

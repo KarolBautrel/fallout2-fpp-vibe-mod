@@ -17,6 +17,8 @@ const BRIDGE_TRACE_PATH := "res://../artifacts/fallout2-ce-state.jsonl"
 const BRIDGE_PROBE_TRACE_PATH := "res://../artifacts/godot-bridge-probe-input.jsonl"
 const BRIDGE_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-bridge-runtime.json"
 const BRIDGE_LIVE_EVIDENCE_PATH := "res://../artifacts/godot-bridge-live-runtime.json"
+const RENDER_PERFORMANCE_EVIDENCE_PATH := "res://../artifacts/godot-render-performance.json"
+const ART_PROFILE_PATH := "res://data/fallout_art_profiles.json"
 const FALLOUT2_CE_COMMIT := "e97087b9582f37075db347a89898887320753f8b"
 
 const FLOOR_CELL_COUNT := 100 * 100
@@ -25,20 +27,36 @@ const BLOCKING_COLLIDER_HEIGHT := 2.4
 const BLOCKING_COLLIDER_RADIUS := 0.42
 const INTERACTION_DISTANCE := 1.75
 const INTERACTION_RAY_DISTANCE := 2.25
+const INFERRED_CEILING_MIN_HEXES := 16
 const CAMERA_ISO := "ISO"
 const CAMERA_FPP := "FPP"
 
 var scene_data: Dictionary
+var art_profiles: Array = []
 var active_camera_mode := CAMERA_FPP
 var map_geometry_root: Node3D
-var floor_instances: MultiMeshInstance3D
+var floor_instances: Array[MultiMeshInstance3D] = []
+var ceiling_instances: Array[MultiMeshInstance3D] = []
+var inferred_ceiling_instances: Array[MeshInstance3D] = []
+var inferred_ceiling_cell_count := 0
+var inferred_ceiling_component_count := 0
+var elevation_roots := {}
+var active_elevation := -1
 var debug_object_counts := {"wall": 0, "door": 0, "scenery": 0}
+var wall_mesh_face_count := 0
+var wall_mesh_elevation_count := 0
+var wall_profile_match_count := 0
+var wall_art_overlay_face_count := 0
+var wall_art_overlay_asset_count := 0
 var blocking_collision_count := 0
 var object_records_by_instance_id := {}
 var object_states := {}
 var object_visuals := {}
 var object_instance_colors := {}
 var object_collision_shapes := {}
+var door_art_overlays := {}
+var image_texture_cache := {}
+var door_art_overlay_count := 0
 var interaction_status := "No object selected"
 var player
 var iso_camera: Camera3D
@@ -60,6 +78,7 @@ var last_bridge_object_state := {}
 
 
 func _ready() -> void:
+	_load_art_profiles()
 	_load_scene_data()
 	if scene_data.is_empty():
 		return
@@ -67,6 +86,7 @@ func _ready() -> void:
 	_create_environment()
 	_create_map_geometry_root()
 	_create_floor_grid()
+	_create_ceiling_grid()
 	_create_ground_collision()
 	_create_map_object_debug_geometry()
 	_create_map_blocking_collisions()
@@ -79,7 +99,11 @@ func _ready() -> void:
 	_run_contract_checks()
 	_set_camera_mode(_requested_start_camera())
 	_write_evidence()
-	if _has_user_argument("--bridge-probe"):
+	if _has_user_argument("--performance-probe"):
+		_run_render_performance_probe()
+	elif _has_user_argument("--screenshot-probe"):
+		_run_screenshot_probe()
+	elif _has_user_argument("--bridge-probe"):
 		_run_bridge_probe()
 	elif _has_user_argument("--interaction-probe"):
 		_run_interaction_probe()
@@ -87,6 +111,60 @@ func _ready() -> void:
 		_run_blocking_collision_probe()
 	elif _has_user_argument("--movement-probe"):
 		_run_runtime_movement_probe()
+
+
+func _run_screenshot_probe() -> void:
+	for _frame in 30:
+		await get_tree().process_frame
+	var image := get_viewport().get_texture().get_image()
+	if image.is_empty():
+		push_error("Viewport screenshot is empty")
+		get_tree().quit(2)
+		return
+	var map_key := _map_stem(String(scene_data["map"]["name"]))
+	var camera_key := active_camera_mode.to_lower()
+	var path := "res://../artifacts/godot-%s-%s-material-preview.png" % [
+		map_key,
+		camera_key,
+	]
+	var error := image.save_png(ProjectSettings.globalize_path(path))
+	if error != OK:
+		push_error("Unable to save screenshot: %s" % error_string(error))
+		get_tree().quit(2)
+		return
+	print("FO2REMIX_SCREENSHOT %s" % ProjectSettings.globalize_path(path))
+	get_tree().quit()
+
+
+func _run_render_performance_probe() -> void:
+	for _frame in 30:
+		await get_tree().process_frame
+	var measured_frames := 180
+	var started_usec := Time.get_ticks_usec()
+	for _frame in measured_frames:
+		await get_tree().process_frame
+	var elapsed_seconds := float(Time.get_ticks_usec() - started_usec) / 1000000.0
+	var average_fps := float(measured_frames) / elapsed_seconds
+	var evidence := {
+		"schema": "fo2remix.godot-render-performance-v1",
+		"map": scene_data["map"]["name"],
+		"camera": active_camera_mode,
+		"renderer": RenderingServer.get_current_rendering_method(),
+		"measured_frames": measured_frames,
+		"elapsed_seconds": elapsed_seconds,
+		"average_fps": average_fps,
+		"wall_art_overlay_faces": wall_art_overlay_face_count,
+		"inferred_ceiling_cells": inferred_ceiling_cell_count,
+		"passed_30_fps": average_fps >= 30.0,
+	}
+	var file := FileAccess.open(
+		ProjectSettings.globalize_path(RENDER_PERFORMANCE_EVIDENCE_PATH),
+		FileAccess.WRITE
+	)
+	assert(file != null, "Could not write render performance evidence")
+	file.store_string(JSON.stringify(evidence, "  "))
+	print("FO2REMIX_RENDER_PERFORMANCE %s" % JSON.stringify(evidence))
+	get_tree().quit(0 if average_fps >= 30.0 else 3)
 
 
 func _process(delta: float) -> void:
@@ -102,6 +180,18 @@ func _process(delta: float) -> void:
 func _load_scene_data() -> void:
 	if not _load_scene_data_from_path(_requested_scene_path()):
 		get_tree().quit(2)
+
+
+func _load_art_profiles() -> void:
+	var file := FileAccess.open(ART_PROFILE_PATH, FileAccess.READ)
+	if file == null:
+		push_error("Missing art profiles: %s" % ProjectSettings.globalize_path(ART_PROFILE_PATH))
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if not parsed is Dictionary or parsed.get("schema", "") != "fo2remix.art-profiles-v1":
+		push_error("Unsupported or invalid art profile catalog")
+		return
+	art_profiles = parsed.get("profiles", [])
 
 
 func _load_scene_data_from_path(path: String) -> bool:
@@ -146,6 +236,25 @@ func _create_map_geometry_root() -> void:
 	add_child(map_geometry_root)
 
 
+func _get_elevation_root(elevation: int) -> Node3D:
+	if elevation_roots.has(elevation):
+		return elevation_roots[elevation]
+	var root := Node3D.new()
+	root.name = "Elevation%d" % elevation
+	root.visible = active_elevation < 0 or active_elevation == elevation
+	map_geometry_root.add_child(root)
+	elevation_roots[elevation] = root
+	return root
+
+
+func _set_active_elevation(elevation: int) -> void:
+	active_elevation = elevation
+	for elevation_value in elevation_roots:
+		var layer_elevation := int(elevation_value)
+		var root: Node3D = elevation_roots[layer_elevation]
+		root.visible = layer_elevation == active_elevation
+
+
 func _create_floor_grid() -> void:
 	var tile_grid: Dictionary = scene_data["tile_grid"]
 	assert(int(tile_grid["width"]) == Coordinates.FLOOR_GRID_WIDTH)
@@ -162,28 +271,34 @@ func _create_floor_grid() -> void:
 				rendered_cell_count += 1
 	assert(rendered_cell_count > 0)
 
-	var material := StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-
-	var cell_mesh := BoxMesh.new()
-	cell_mesh.size = Vector3.ONE
-	cell_mesh.material = material
-
-	var multi_mesh := MultiMesh.new()
-	multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
-	multi_mesh.use_colors = true
-	multi_mesh.mesh = cell_mesh
-	multi_mesh.instance_count = rendered_cell_count
-
 	var column_axis := Vector3(1.5, 0.0, -Coordinates.SQRT_3_OVER_2) * 0.992
 	var row_axis := Vector3(1.0, 0.0, 2.0 * Coordinates.SQRT_3_OVER_2) * 0.992
 	var cell_basis := Basis(column_axis, Vector3(0.0, FLOOR_THICKNESS, 0.0), row_axis)
-
-	var instance_index := 0
 	for layer_value in layers:
 		var layer: Dictionary = layer_value
 		var floor_ids: Array = layer["floor_ids"]
+		var layer_cell_count := 0
+		for floor_id in floor_ids:
+			if int(floor_id) != 1:
+				layer_cell_count += 1
+		if layer_cell_count == 0:
+			continue
+
+		var material := StandardMaterial3D.new()
+		material.vertex_color_use_as_albedo = true
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+
+		var cell_mesh := BoxMesh.new()
+		cell_mesh.size = Vector3.ONE
+		cell_mesh.material = material
+
+		var multi_mesh := MultiMesh.new()
+		multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
+		multi_mesh.use_colors = true
+		multi_mesh.mesh = cell_mesh
+		multi_mesh.instance_count = layer_cell_count
+
+		var instance_index := 0
 		for tile_index in FLOOR_CELL_COUNT:
 			var floor_id := int(floor_ids[tile_index])
 			if floor_id == 1:
@@ -202,26 +317,211 @@ func _create_floor_grid() -> void:
 			multi_mesh.set_instance_color(instance_index, _debug_floor_color(floor_id))
 			instance_index += 1
 
-	floor_instances = MultiMeshInstance3D.new()
-	floor_instances.name = "FloorGrid100x100"
-	floor_instances.multimesh = multi_mesh
-	map_geometry_root.add_child(floor_instances)
+		var layer_instances := MultiMeshInstance3D.new()
+		var elevation := int(layer["elevation"])
+		layer_instances.name = "FloorGrid100x100Elevation%d" % elevation
+		layer_instances.multimesh = multi_mesh
+		floor_instances.append(layer_instances)
+		_get_elevation_root(elevation).add_child(layer_instances)
 
 
 func _create_ground_collision() -> void:
-	var ground := StaticBody3D.new()
-	ground.name = "DebugGroundCollision"
 	for layer_value in scene_data["tile_grid"]["layers"]:
 		var layer: Dictionary = layer_value
+		var elevation := int(layer["elevation"])
+		var ground := StaticBody3D.new()
+		ground.name = "DebugGroundCollisionElevation%d" % elevation
 		var collision := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
 		shape.size = Vector3(600.0, 0.2, 600.0)
 		collision.shape = shape
 		collision.position.y = (
-			float(layer["elevation"]) * Coordinates.ELEVATION_HEIGHT - 0.1
+			float(elevation) * Coordinates.ELEVATION_HEIGHT - 0.1
 		)
 		ground.add_child(collision)
-	map_geometry_root.add_child(ground)
+		_get_elevation_root(elevation).add_child(ground)
+
+
+func _create_ceiling_grid() -> void:
+	var column_axis := Vector3(1.5, 0.0, -Coordinates.SQRT_3_OVER_2) * 0.992
+	var row_axis := Vector3(1.0, 0.0, 2.0 * Coordinates.SQRT_3_OVER_2) * 0.992
+	var cell_basis := Basis(column_axis, Vector3(0.0, FLOOR_THICKNESS, 0.0), row_axis)
+	for layer_value in scene_data["tile_grid"]["layers"]:
+		var layer: Dictionary = layer_value
+		var roof_ids: Array = layer["roof_ids"]
+		var roof_cell_count := 0
+		for roof_id in roof_ids:
+			if int(roof_id) != 1:
+				roof_cell_count += 1
+		if roof_cell_count == 0:
+			_create_inferred_ceiling(int(layer["elevation"]))
+			continue
+
+		var material := StandardMaterial3D.new()
+		material.vertex_color_use_as_albedo = true
+		material.roughness = 0.95
+		var cell_mesh := BoxMesh.new()
+		cell_mesh.size = Vector3.ONE
+		cell_mesh.material = material
+
+		var multi_mesh := MultiMesh.new()
+		multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
+		multi_mesh.use_colors = true
+		multi_mesh.mesh = cell_mesh
+		multi_mesh.instance_count = roof_cell_count
+
+		var instance_index := 0
+		for tile_index in FLOOR_CELL_COUNT:
+			var roof_id := int(roof_ids[tile_index])
+			if roof_id == 1:
+				continue
+			var column := Coordinates.FLOOR_GRID_WIDTH - 1 - (
+				tile_index % Coordinates.FLOOR_GRID_WIDTH
+			)
+			var row := int(tile_index / Coordinates.FLOOR_GRID_WIDTH)
+			var elevation := int(layer["elevation"])
+			var origin := Coordinates.square_grid_to_world(column, row, elevation)
+			origin.y += Coordinates.ELEVATION_HEIGHT + FLOOR_THICKNESS * 0.5
+			multi_mesh.set_instance_transform(
+				instance_index,
+				Transform3D(cell_basis, origin)
+			)
+			multi_mesh.set_instance_color(instance_index, _debug_ceiling_color(roof_id))
+			instance_index += 1
+
+		var elevation := int(layer["elevation"])
+		var layer_instances := MultiMeshInstance3D.new()
+		layer_instances.name = "CeilingGrid100x100Elevation%d" % elevation
+		layer_instances.multimesh = multi_mesh
+		ceiling_instances.append(layer_instances)
+		_get_elevation_root(elevation).add_child(layer_instances)
+	_refresh_ceiling_visibility()
+
+
+func _create_inferred_ceiling(elevation: int) -> void:
+	var hex_count := Coordinates.HEX_GRID_WIDTH * Coordinates.HEX_GRID_HEIGHT
+	var blocked := PackedByteArray()
+	blocked.resize(hex_count)
+	for record_value in scene_data["collision"]["blocking_hexes"]:
+		var record: Dictionary = record_value
+		if int(record["elevation"]) == elevation:
+			blocked[int(record["hex_index"])] = 1
+
+	var outside := PackedByteArray()
+	outside.resize(hex_count)
+	var queue: Array[int] = []
+	for row in Coordinates.HEX_GRID_HEIGHT:
+		for column in [0, Coordinates.HEX_GRID_WIDTH - 1]:
+			var tile := Coordinates.grid_to_tile_index(column, row)
+			if blocked[tile] == 0 and outside[tile] == 0:
+				outside[tile] = 1
+				queue.append(tile)
+	for column in Coordinates.HEX_GRID_WIDTH:
+		for row in [0, Coordinates.HEX_GRID_HEIGHT - 1]:
+			var tile := Coordinates.grid_to_tile_index(column, row)
+			if blocked[tile] == 0 and outside[tile] == 0:
+				outside[tile] = 1
+				queue.append(tile)
+
+	var queue_index := 0
+	while queue_index < queue.size():
+		var tile := queue[queue_index]
+		queue_index += 1
+		for direction_index in 6:
+			var neighbor := Coordinates.tile_in_direction(tile, direction_index)
+			if neighbor != tile and blocked[neighbor] == 0 and outside[neighbor] == 0:
+				outside[neighbor] = 1
+				queue.append(neighbor)
+
+	var visited := PackedByteArray()
+	visited.resize(hex_count)
+	var ceiling_components: Array[Array] = []
+	for seed in hex_count:
+		if blocked[seed] != 0 or outside[seed] != 0 or visited[seed] != 0:
+			continue
+		var component: Array[int] = []
+		queue = [seed]
+		queue_index = 0
+		visited[seed] = 1
+		while queue_index < queue.size():
+			var tile := queue[queue_index]
+			queue_index += 1
+			component.append(tile)
+			for direction_index in 6:
+				var neighbor := Coordinates.tile_in_direction(tile, direction_index)
+				if (
+					neighbor != tile
+					and blocked[neighbor] == 0
+					and outside[neighbor] == 0
+					and visited[neighbor] == 0
+				):
+					visited[neighbor] = 1
+					queue.append(neighbor)
+		if component.size() >= INFERRED_CEILING_MIN_HEXES:
+			ceiling_components.append(component)
+
+	if ceiling_components.is_empty():
+		return
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var emitted_tiles := {}
+	for component_index in ceiling_components.size():
+		var component: Array = ceiling_components[component_index]
+		var color := Color.from_hsv(
+			0.075 + float(component_index % 5) * 0.008,
+			0.13,
+			0.31,
+			1.0
+		)
+		for tile_value in component:
+			var tile := int(tile_value)
+			if not emitted_tiles.has(tile):
+				_add_ceiling_hex(surface, tile, elevation, color)
+				emitted_tiles[tile] = true
+				inferred_ceiling_cell_count += 1
+			for direction_index in 6:
+				var neighbor := Coordinates.tile_in_direction(tile, direction_index)
+				if neighbor != tile and blocked[neighbor] != 0 and not emitted_tiles.has(neighbor):
+					_add_ceiling_hex(surface, neighbor, elevation, color.darkened(0.04))
+					emitted_tiles[neighbor] = true
+					inferred_ceiling_cell_count += 1
+		inferred_ceiling_component_count += 1
+
+	surface.generate_normals()
+	var mesh := surface.commit()
+	if mesh == null:
+		return
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.roughness = 0.95
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mesh.surface_set_material(0, material)
+	var instance := MeshInstance3D.new()
+	instance.name = "InferredCeilingElevation%d" % elevation
+	instance.mesh = mesh
+	inferred_ceiling_instances.append(instance)
+	_get_elevation_root(elevation).add_child(instance)
+
+
+func _add_ceiling_hex(
+	surface: SurfaceTool,
+	tile: int,
+	elevation: int,
+	color: Color
+) -> void:
+	var center := Coordinates.hex_index_to_world(tile, elevation)
+	center.y += Coordinates.ELEVATION_HEIGHT
+	for direction_index in 6:
+		var first_direction := Coordinates.direction_to_world(tile, direction_index)
+		var second_direction := Coordinates.direction_to_world(
+			tile,
+			(direction_index + 1) % 6
+		)
+		var corner_a := center + (first_direction + second_direction) / 3.0
+		var next_first := second_direction
+		var next_second := Coordinates.direction_to_world(tile, (direction_index + 2) % 6)
+		var corner_b := center + (next_first + next_second) / 3.0
+		_add_colored_triangle(surface, center, corner_a, corner_b, color)
 
 
 func _create_map_object_debug_geometry() -> void:
@@ -254,14 +554,247 @@ func _create_map_object_debug_geometry() -> void:
 	debug_object_counts["wall"] = walls.size()
 	debug_object_counts["door"] = doors.size()
 	debug_object_counts["scenery"] = scenery.size()
-	_create_object_instances("DebugWalls", walls, Vector3(0.9, 2.2, 0.14), Color("6d8ca8"))
+	wall_profile_match_count = 0
+	for wall in walls:
+		if not _art_profile_for_record(wall).is_empty():
+			wall_profile_match_count += 1
+	_create_wall_topology_mesh(walls)
+	_create_wall_art_overlays(walls)
 	_create_object_instances("DebugDoors", doors, Vector3(0.9, 2.1, 0.18), Color("d18152"))
+	_create_door_art_overlays(doors)
 	_create_object_instances(
 		"DebugScenery",
 		scenery,
 		Vector3(0.48, 1.1, 0.48),
 		Color("638a68")
 	)
+
+
+func _create_wall_topology_mesh(records: Array[Dictionary]) -> void:
+	var cells_by_elevation := {}
+	for record in records:
+		var elevation := int(record["elevation"])
+		if not cells_by_elevation.has(elevation):
+			cells_by_elevation[elevation] = {}
+		var tile := int(record["hex_index"])
+		if not cells_by_elevation[elevation].has(tile):
+			cells_by_elevation[elevation][tile] = record
+
+	wall_mesh_face_count = 0
+	wall_mesh_elevation_count = cells_by_elevation.size()
+	for elevation_value in cells_by_elevation:
+		var elevation := int(elevation_value)
+		var cells: Dictionary = cells_by_elevation[elevation]
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for tile_value in cells:
+			var tile := int(tile_value)
+			var record: Dictionary = cells[tile]
+			var center := Coordinates.hex_index_to_world(tile, elevation)
+			var base_y := center.y
+			var top_y := base_y + Coordinates.ELEVATION_HEIGHT
+			var wall_color := _debug_wall_color(record)
+			for direction_index in 6:
+				var neighbor := Coordinates.tile_in_direction(tile, direction_index)
+				if neighbor != tile and cells.has(neighbor):
+					continue
+				var outward := Coordinates.direction_to_world(tile, direction_index)
+				var tangent := Vector3(-outward.z, 0.0, outward.x)
+				var face_center := center + outward * 0.5
+				var half_side := 0.28867513459481287
+				var base_a := Vector3(
+					face_center.x - tangent.x * half_side,
+					base_y,
+					face_center.z - tangent.z * half_side
+				)
+				var base_b := Vector3(
+					face_center.x + tangent.x * half_side,
+					base_y,
+					face_center.z + tangent.z * half_side
+				)
+				var top_a := Vector3(base_a.x, top_y, base_a.z)
+				var top_b := Vector3(base_b.x, top_y, base_b.z)
+				_add_colored_triangle(surface, base_a, top_b, base_b, wall_color)
+				_add_colored_triangle(surface, base_a, top_a, top_b, wall_color)
+				wall_mesh_face_count += 2
+
+			for direction_index in 6:
+				var first_direction := Coordinates.direction_to_world(tile, direction_index)
+				var second_direction := Coordinates.direction_to_world(
+					tile,
+					(direction_index + 1) % 6
+				)
+				var corner_a := Vector3(
+					center.x + (first_direction.x + second_direction.x) / 3.0,
+					top_y,
+					center.z + (first_direction.z + second_direction.z) / 3.0
+				)
+				var next_first := Coordinates.direction_to_world(tile, (direction_index + 1) % 6)
+				var next_second := Coordinates.direction_to_world(tile, (direction_index + 2) % 6)
+				var corner_b := Vector3(
+					center.x + (next_first.x + next_second.x) / 3.0,
+					top_y,
+					center.z + (next_first.z + next_second.z) / 3.0
+				)
+				_add_colored_triangle(
+					surface,
+					Vector3(center.x, top_y, center.z),
+					corner_a,
+					corner_b,
+					wall_color.darkened(0.18)
+				)
+				wall_mesh_face_count += 1
+
+		surface.generate_normals()
+		var mesh := surface.commit()
+		if mesh == null:
+			continue
+		var material := StandardMaterial3D.new()
+		material.vertex_color_use_as_albedo = true
+		material.roughness = 0.9
+		mesh.surface_set_material(0, material)
+		var instance := MeshInstance3D.new()
+		instance.name = "WallTopologyElevation%d" % elevation
+		instance.mesh = mesh
+		_get_elevation_root(elevation).add_child(instance)
+
+
+func _create_wall_art_overlays(records: Array[Dictionary]) -> void:
+	var cells_by_elevation := {}
+	for record in records:
+		var elevation := int(record["elevation"])
+		if not cells_by_elevation.has(elevation):
+			cells_by_elevation[elevation] = {}
+		cells_by_elevation[elevation][int(record["hex_index"])] = record
+
+	var groups := {}
+	var map_key := _map_stem(String(scene_data["map"]["name"]))
+	for elevation_value in cells_by_elevation:
+		var elevation := int(elevation_value)
+		var cells: Dictionary = cells_by_elevation[elevation]
+		for tile_value in cells:
+			var tile := int(tile_value)
+			var record: Dictionary = cells[tile]
+			var source_path := String(record.get("art", {}).get("path", ""))
+			if source_path.is_empty():
+				continue
+			var normalized_path := source_path.replace("\\", "/").to_lower()
+			var file_stem := normalized_path.get_file().get_basename()
+			var cache_path := (
+				"res://../artifacts/art-cache/%s/walls/%s-r0-f0.png" % [
+					map_key,
+					file_stem,
+				]
+			)
+			if not FileAccess.file_exists(cache_path):
+				continue
+			var group_key := "%d|%s" % [elevation, cache_path]
+			if not groups.has(group_key):
+				groups[group_key] = {
+					"elevation": elevation,
+					"cache_path": cache_path,
+					"transforms": [],
+				}
+			var center := Coordinates.hex_index_to_world(tile, elevation)
+			for direction_index in 6:
+				var neighbor := Coordinates.tile_in_direction(tile, direction_index)
+				if neighbor != tile and cells.has(neighbor):
+					continue
+				var outward := Coordinates.direction_to_world(tile, direction_index)
+				var tangent := Vector3(outward.z, 0.0, -outward.x)
+				var basis := Basis(tangent, Vector3.UP, outward)
+				var origin := center + outward * 0.503
+				origin.y += Coordinates.ELEVATION_HEIGHT * 0.5
+				groups[group_key]["transforms"].append(Transform3D(basis, origin))
+
+	wall_art_overlay_face_count = 0
+	wall_art_overlay_asset_count = 0
+	for group_value in groups.values():
+		var group: Dictionary = group_value
+		var transforms: Array = group["transforms"]
+		if transforms.is_empty():
+			continue
+		var image := Image.new()
+		var absolute_path := ProjectSettings.globalize_path(String(group["cache_path"]))
+		if image.load(absolute_path) != OK:
+			continue
+		var texture := ImageTexture.create_from_image(image)
+		var material := StandardMaterial3D.new()
+		material.albedo_texture = texture
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		material.alpha_scissor_threshold = 0.5
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		material.roughness = 0.95
+		var quad := QuadMesh.new()
+		quad.size = Vector2(0.575, Coordinates.ELEVATION_HEIGHT * 0.98)
+		quad.material = material
+		var multi_mesh := MultiMesh.new()
+		multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
+		multi_mesh.mesh = quad
+		multi_mesh.instance_count = transforms.size()
+		for index in transforms.size():
+			multi_mesh.set_instance_transform(index, transforms[index])
+		var instances := MultiMeshInstance3D.new()
+		instances.name = "WallArt_%s" % String(group["cache_path"]).get_file().get_basename()
+		instances.multimesh = multi_mesh
+		_get_elevation_root(int(group["elevation"])).add_child(instances)
+		wall_art_overlay_face_count += transforms.size()
+		wall_art_overlay_asset_count += 1
+
+
+func _add_colored_triangle(
+	surface: SurfaceTool,
+	a: Vector3,
+	b: Vector3,
+	c: Vector3,
+	color: Color
+) -> void:
+	surface.set_color(color)
+	surface.add_vertex(a)
+	surface.set_color(color)
+	surface.add_vertex(b)
+	surface.set_color(color)
+	surface.add_vertex(c)
+
+
+func _debug_wall_color(record: Dictionary) -> Color:
+	var profile := _art_profile_for_record(record)
+	if not profile.is_empty():
+		return Color(String(profile["albedo"]))
+	var art: Dictionary = record.get("art", {})
+	var average_rgb: Array = art.get("opaque_average_rgb", [])
+	if average_rgb.size() == 3:
+		var average_color := Color(
+			float(average_rgb[0]) / 255.0,
+			float(average_rgb[1]) / 255.0,
+			float(average_rgb[2]) / 255.0,
+			1.0
+		)
+		return Color.from_hsv(
+			average_color.h,
+			average_color.s,
+			maxf(average_color.v, 0.22),
+			1.0
+		)
+	var fid := int(record.get("fid", 0))
+	var wall_art_index := fid & 0xFFF
+	var hue := fmod(0.56 + float(wall_art_index % 11) * 0.008, 1.0)
+	var value := 0.42 + float(wall_art_index % 4) * 0.035
+	return Color.from_hsv(hue, 0.22, value, 1.0)
+
+
+func _art_profile_for_record(record: Dictionary) -> Dictionary:
+	var kind := String(record.get("kind", ""))
+	var art: Dictionary = record.get("art", {})
+	var art_path := String(art.get("path", "")).to_lower()
+	for profile_value in art_profiles:
+		var profile: Dictionary = profile_value
+		if kind != String(profile.get("kind", "")):
+			continue
+		var prefix := String(profile.get("art_path_prefix", "")).to_lower()
+		if not prefix.is_empty() and art_path.begins_with(prefix):
+			return profile
+	return {}
 
 
 func _create_object_instances(
@@ -272,72 +805,175 @@ func _create_object_instances(
 ) -> void:
 	if records.is_empty():
 		return
-	var material := StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3.ONE
-	mesh.material = material
+	var records_by_elevation := {}
+	for record in records:
+		var elevation := int(record["elevation"])
+		if not records_by_elevation.has(elevation):
+			records_by_elevation[elevation] = []
+		records_by_elevation[elevation].append(record)
 
-	var multi_mesh := MultiMesh.new()
-	multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
-	multi_mesh.use_colors = true
-	multi_mesh.mesh = mesh
-	multi_mesh.instance_count = records.size()
-	for index in records.size():
-		var record := records[index]
+	for elevation_value in records_by_elevation:
+		var elevation := int(elevation_value)
+		var layer_records: Array = records_by_elevation[elevation]
+		var material := StandardMaterial3D.new()
+		material.vertex_color_use_as_albedo = true
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3.ONE
+		mesh.material = material
+
+		var multi_mesh := MultiMesh.new()
+		multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
+		multi_mesh.use_colors = true
+		multi_mesh.mesh = mesh
+		multi_mesh.instance_count = layer_records.size()
+		for index in layer_records.size():
+			var record: Dictionary = layer_records[index]
+			var instance_id := int(record["instance_id"])
+			var tile := int(record["hex_index"])
+			var rotation := int(record["rotation"])
+			var direction := Coordinates.direction_to_world(tile, rotation)
+			var yaw := atan2(-direction.x, -direction.z)
+			var basis := Basis(Vector3.UP, yaw).scaled(size)
+			var position := Coordinates.hex_index_to_world(tile, elevation)
+			position.y += size.y * 0.5
+			var base_transform := Transform3D(basis, position)
+			var record_color := _record_source_color(record, color)
+			multi_mesh.set_instance_transform(index, base_transform)
+			multi_mesh.set_instance_color(index, record_color)
+			object_visuals[instance_id] = {
+				"multi_mesh": multi_mesh,
+				"index": index,
+				"base_transform": base_transform,
+			}
+			object_instance_colors[instance_id] = record_color
+
+		var instances := MultiMeshInstance3D.new()
+		instances.name = "%sElevation%d" % [node_name, elevation]
+		instances.multimesh = multi_mesh
+		_get_elevation_root(elevation).add_child(instances)
+
+
+func _record_source_color(record: Dictionary, fallback: Color) -> Color:
+	var art: Dictionary = record.get("art", {})
+	var average_rgb: Array = art.get("opaque_average_rgb", [])
+	if average_rgb.size() != 3:
+		return fallback
+	var color := Color(
+		float(average_rgb[0]) / 255.0,
+		float(average_rgb[1]) / 255.0,
+		float(average_rgb[2]) / 255.0,
+		1.0
+	)
+	return Color.from_hsv(color.h, color.s, maxf(color.v, 0.24), 1.0)
+
+
+func _create_door_art_overlays(records: Array[Dictionary]) -> void:
+	var map_key := _map_stem(String(scene_data["map"]["name"]))
+	door_art_overlay_count = 0
+	for record in records:
+		var art: Dictionary = record.get("art", {})
+		var source_path := String(art.get("path", ""))
+		var frame: Dictionary = art.get("frame", {})
+		var frame_count := int(frame.get("frame_count", 1))
+		if source_path.is_empty() or frame_count <= 0:
+			continue
+		var normalized_path := source_path.replace("\\", "/").to_lower()
+		var file_stem := normalized_path.get_file().get_basename()
+		var textures: Array[Texture2D] = []
+		for frame_index in frame_count:
+			var cache_path := (
+				"res://../artifacts/art-cache/%s/scenery/%s-r0-f%d.png" % [
+					map_key,
+					file_stem,
+					frame_index,
+				]
+			)
+			var texture := _load_cached_image_texture(cache_path)
+			if texture == null:
+				textures.clear()
+				break
+			textures.append(texture)
+		if textures.is_empty():
+			continue
+
+		var material := StandardMaterial3D.new()
+		material.albedo_texture = textures[0]
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		material.alpha_scissor_threshold = 0.5
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		material.roughness = 0.9
+		var quad := QuadMesh.new()
+		quad.size = Vector2(1.35, 2.2)
+		quad.material = material
+		var instance := MeshInstance3D.new()
 		var instance_id := int(record["instance_id"])
+		instance.name = "DoorArt%d" % instance_id
+		instance.mesh = quad
 		var tile := int(record["hex_index"])
 		var elevation := int(record["elevation"])
-		var rotation := int(record["rotation"])
-		var direction := Coordinates.direction_to_world(tile, rotation)
-		var yaw := atan2(-direction.x, -direction.z)
-		var basis := Basis(Vector3.UP, yaw).scaled(size)
-		var position := Coordinates.hex_index_to_world(tile, elevation)
-		position.y += size.y * 0.5
-		var base_transform := Transform3D(basis, position)
-		multi_mesh.set_instance_transform(index, base_transform)
-		multi_mesh.set_instance_color(index, color)
-		object_visuals[instance_id] = {
-			"multi_mesh": multi_mesh,
-			"index": index,
-			"base_transform": base_transform,
+		var direction := Coordinates.direction_to_world(tile, int(record["rotation"]))
+		var tangent := Vector3(direction.z, 0.0, -direction.x)
+		instance.transform = Transform3D(
+			Basis(tangent, Vector3.UP, direction),
+			Coordinates.hex_index_to_world(tile, elevation) + Vector3.UP * 1.1
+		)
+		_get_elevation_root(elevation).add_child(instance)
+		door_art_overlays[instance_id] = {
+			"instance": instance,
+			"material": material,
+			"textures": textures,
+			"current_frame": 0,
 		}
-		object_instance_colors[instance_id] = color
+		door_art_overlay_count += 1
+		_refresh_door_art_frame(instance_id)
 
-	var instances := MultiMeshInstance3D.new()
-	instances.name = node_name
-	instances.multimesh = multi_mesh
-	map_geometry_root.add_child(instances)
+
+func _load_cached_image_texture(path: String) -> Texture2D:
+	if image_texture_cache.has(path):
+		return image_texture_cache[path]
+	if not FileAccess.file_exists(path):
+		return null
+	var image := Image.new()
+	if image.load(ProjectSettings.globalize_path(path)) != OK:
+		return null
+	var texture := ImageTexture.create_from_image(image)
+	image_texture_cache[path] = texture
+	return texture
 
 
 func _create_map_blocking_collisions() -> void:
 	var collision_section: Dictionary = scene_data.get("collision", {})
 	var records: Array = collision_section.get("blocking_hexes", [])
-	var body := StaticBody3D.new()
-	body.name = "FalloutBlockingHexes"
+	var bodies_by_elevation := {}
 	var shared_shape := CylinderShape3D.new()
 	shared_shape.radius = BLOCKING_COLLIDER_RADIUS
 	shared_shape.height = BLOCKING_COLLIDER_HEIGHT
 	for value in records:
 		var record: Dictionary = value
+		var elevation := int(record["elevation"])
+		if not bodies_by_elevation.has(elevation):
+			var body := StaticBody3D.new()
+			body.name = "FalloutBlockingHexesElevation%d" % elevation
+			bodies_by_elevation[elevation] = body
+			_get_elevation_root(elevation).add_child(body)
 		var collision := CollisionShape3D.new()
 		collision.shape = shared_shape
 		collision.position = Coordinates.hex_index_to_world(
 			int(record["hex_index"]),
-			int(record["elevation"])
+			elevation
 		)
 		collision.position.y += BLOCKING_COLLIDER_HEIGHT * 0.5
 		collision.set_meta("instance_ids", record.get("instance_ids", []))
 		collision.set_meta("object_ids", record.get("object_ids", []))
 		collision.set_meta("hex_index", int(record["hex_index"]))
-		collision.set_meta("elevation", int(record["elevation"]))
-		body.add_child(collision)
+		collision.set_meta("elevation", elevation)
+		var elevation_body: StaticBody3D = bodies_by_elevation[elevation]
+		elevation_body.add_child(collision)
 		for instance_id_value in record.get("instance_ids", []):
 			var instance_id := int(instance_id_value)
 			if not object_collision_shapes.has(instance_id):
 				object_collision_shapes[instance_id] = []
 			object_collision_shapes[instance_id].append(collision)
-	map_geometry_root.add_child(body)
 	blocking_collision_count = records.size()
 	for instance_id in object_collision_shapes:
 		_refresh_object_collisions(int(instance_id))
@@ -351,6 +987,12 @@ func _debug_floor_color(floor_id: int) -> Color:
 	return Color.from_hsv(hue, 0.18, value, 1.0)
 
 
+func _debug_ceiling_color(roof_id: int) -> Color:
+	var hue := fmod(0.08 + float(roof_id % 13) * 0.007, 1.0)
+	var value := 0.28 + float(roof_id % 5) * 0.025
+	return Color.from_hsv(hue, 0.12, value, 1.0)
+
+
 func _count_rendered_floor_cells() -> int:
 	var count := 0
 	for layer_value in scene_data["tile_grid"]["layers"]:
@@ -358,6 +1000,48 @@ func _count_rendered_floor_cells() -> int:
 		for floor_id in layer["floor_ids"]:
 			if int(floor_id) != 1:
 				count += 1
+	return count
+
+
+func _count_floor_instances() -> int:
+	var count := 0
+	for instances in floor_instances:
+		count += instances.multimesh.instance_count
+	return count
+
+
+func _count_rendered_ceiling_cells() -> int:
+	var count := 0
+	for layer_value in scene_data["tile_grid"]["layers"]:
+		var layer: Dictionary = layer_value
+		for roof_id in layer["roof_ids"]:
+			if int(roof_id) != 1:
+				count += 1
+	return count
+
+
+func _count_ceiling_instances() -> int:
+	var count := 0
+	for instances in ceiling_instances:
+		count += instances.multimesh.instance_count
+	return count
+
+
+func _count_wall_elevations() -> int:
+	var elevations := {}
+	for record_value in scene_data["objects"]["records"]:
+		var record: Dictionary = record_value
+		if String(record.get("kind", "")) == "wall":
+			elevations[int(record["elevation"])] = true
+	return elevations.size()
+
+
+func _count_visible_elevations() -> int:
+	var count := 0
+	for root_value in elevation_roots.values():
+		var root: Node3D = root_value
+		if root.visible:
+			count += 1
 	return count
 
 
@@ -482,6 +1166,7 @@ func _set_camera_mode(mode: String) -> void:
 	fpp_camera.current = mode == CAMERA_FPP
 	player.set_first_person(mode == CAMERA_FPP)
 	crosshair.visible = mode == CAMERA_FPP
+	_refresh_ceiling_visibility()
 	if DisplayServer.get_name() != "headless":
 		Input.mouse_mode = (
 			Input.MOUSE_MODE_CAPTURED
@@ -489,6 +1174,23 @@ func _set_camera_mode(mode: String) -> void:
 			else Input.MOUSE_MODE_VISIBLE
 		)
 	_update_hud()
+
+
+func _refresh_ceiling_visibility() -> void:
+	for instances in ceiling_instances:
+		instances.visible = active_camera_mode == CAMERA_FPP
+	for instance in inferred_ceiling_instances:
+		instance.visible = active_camera_mode == CAMERA_FPP
+
+
+func _ceilings_have_visibility(expected: bool) -> bool:
+	for instances in ceiling_instances:
+		if instances.visible != expected:
+			return false
+	for instance in inferred_ceiling_instances:
+		if instance.visible != expected:
+			return false
+	return true
 
 
 func _update_cameras() -> void:
@@ -501,7 +1203,8 @@ func _update_cameras() -> void:
 	fpp_camera.global_rotation = Vector3(player.view_pitch, player.view_yaw, 0.0)
 
 
-func _on_player_state_changed(_state: Dictionary) -> void:
+func _on_player_state_changed(state: Dictionary) -> void:
+	_set_active_elevation(int(state["elevation"]))
 	_update_hud()
 
 
@@ -609,10 +1312,24 @@ func _rebuild_map_geometry() -> void:
 	object_visuals.clear()
 	object_instance_colors.clear()
 	object_collision_shapes.clear()
+	door_art_overlays.clear()
+	image_texture_cache.clear()
+	door_art_overlay_count = 0
 	debug_object_counts = {"wall": 0, "door": 0, "scenery": 0}
+	wall_mesh_face_count = 0
+	wall_mesh_elevation_count = 0
+	wall_profile_match_count = 0
+	wall_art_overlay_face_count = 0
+	wall_art_overlay_asset_count = 0
 	blocking_collision_count = 0
-	floor_instances = null
+	floor_instances.clear()
+	ceiling_instances.clear()
+	inferred_ceiling_instances.clear()
+	inferred_ceiling_cell_count = 0
+	inferred_ceiling_component_count = 0
+	elevation_roots.clear()
 	_create_floor_grid()
+	_create_ceiling_grid()
 	_create_ground_collision()
 	_create_map_object_debug_geometry()
 	_create_map_blocking_collisions()
@@ -957,6 +1674,25 @@ func _refresh_object_colors() -> void:
 		var multi_mesh: MultiMesh = visual["multi_mesh"]
 		multi_mesh.set_instance_transform(int(visual["index"]), transform)
 		multi_mesh.set_instance_color(int(visual["index"]), color)
+		_refresh_door_art_frame(int(instance_id))
+
+
+func _refresh_door_art_frame(instance_id: int) -> void:
+	if not door_art_overlays.has(instance_id):
+		return
+	var overlay: Dictionary = door_art_overlays[instance_id]
+	var textures: Array = overlay["textures"]
+	var frame_index := 0
+	if (
+		object_states.has(instance_id)
+		and bool(object_states[instance_id].get("open", false))
+	):
+		frame_index = textures.size() - 1
+	var material: StandardMaterial3D = overlay["material"]
+	material.albedo_texture = textures[frame_index]
+	overlay["current_frame"] = frame_index
+	var instance: MeshInstance3D = overlay["instance"]
+	instance.visible = frame_index == 0 or textures.size() > 1
 
 
 func _refresh_object_collisions(instance_id: int) -> void:
@@ -1022,14 +1758,30 @@ func _update_hud() -> void:
 
 
 func _run_contract_checks() -> void:
-	assert(floor_instances.multimesh.instance_count == _count_rendered_floor_cells())
-	assert(floor_instances.multimesh.instance_count >= 2)
+	assert(_count_floor_instances() == _count_rendered_floor_cells())
+	assert(_count_floor_instances() >= 2)
+	assert(_count_ceiling_instances() == _count_rendered_ceiling_cells())
+	assert(elevation_roots.has(active_elevation))
+	var visible_elevation_count := 0
+	for elevation_value in elevation_roots:
+		var elevation := int(elevation_value)
+		var root: Node3D = elevation_roots[elevation]
+		if root.visible:
+			visible_elevation_count += 1
+		assert(root.visible == (elevation == active_elevation))
+	assert(visible_elevation_count == 1)
 	var object_section: Dictionary = scene_data["objects"]
 	var object_records: Array = object_section["records"]
 	assert(object_records.size() == int(object_section["exported_count"]))
 	assert(int(object_section["wall_count"]) >= 2)
 	assert(debug_object_counts["wall"] == int(object_section["wall_count"]))
+	assert(wall_mesh_face_count > 0)
+	assert(wall_mesh_elevation_count == _count_wall_elevations())
+	assert(wall_profile_match_count <= debug_object_counts["wall"])
+	assert(wall_art_overlay_face_count > 0)
+	assert(wall_art_overlay_asset_count > 0)
 	assert(debug_object_counts["door"] == int(object_section["door_count"]))
+	assert(door_art_overlay_count <= debug_object_counts["door"])
 	assert(debug_object_counts["scenery"] == int(object_section["scenery_count"]))
 	var blocking_records: Array = scene_data["collision"]["blocking_hexes"]
 	assert(blocking_collision_count == blocking_records.size())
@@ -1074,6 +1826,7 @@ func _run_contract_checks() -> void:
 
 	var state_before: Dictionary = player.get_state_snapshot()
 	_set_camera_mode(CAMERA_FPP)
+	assert(_ceilings_have_visibility(true))
 	assert(player.get_state_snapshot() == state_before)
 	var expected_eye: Vector3 = player.global_position + Vector3.UP * player.eye_height
 	assert(fpp_camera.global_position.distance_to(expected_eye) < 0.00001)
@@ -1081,6 +1834,7 @@ func _run_contract_checks() -> void:
 		Vector2(player.global_position.x, player.global_position.z)
 	) < 0.00001)
 	_set_camera_mode(CAMERA_ISO)
+	assert(_ceilings_have_visibility(false))
 	assert(object_states.size() >= 2)
 	assert(int(player.logical_state["selection"]) == -1)
 	assert(player.get_state_snapshot() == state_before)
@@ -1281,6 +2035,9 @@ func _run_bridge_probe() -> void:
 	if tests_door_state:
 		assert(bool(object_states[target_instance_id]["open"]))
 		assert(not bool(object_states[target_instance_id]["blocks_movement"]))
+		if door_art_overlays.has(target_instance_id):
+			var overlay: Dictionary = door_art_overlays[target_instance_id]
+			assert(int(overlay["current_frame"]) == overlay["textures"].size() - 1)
 		for collision_value in object_collision_shapes.get(target_instance_id, []):
 			var collision: CollisionShape3D = collision_value
 			assert(collision.disabled, "Open CE door retained its Godot collision")
@@ -1311,6 +2068,11 @@ func _run_bridge_probe() -> void:
 		"door_collision_disabled": (
 			tests_door_state
 			and not bool(object_states[target_instance_id].get("blocks_movement", true))
+		),
+		"door_art_open_frame": (
+			int(door_art_overlays[target_instance_id]["current_frame"])
+			if tests_door_state and door_art_overlays.has(target_instance_id)
+			else -1
 		),
 		"camera_round_trip_preserved_bridge_state": true,
 		"local_movement_disabled_under_ce_authority": not player.movement_enabled,
@@ -1548,11 +2310,23 @@ func _write_evidence() -> void:
 		"fallout2_ce_commit": FALLOUT2_CE_COMMIT,
 		"scene_schema": scene_data["schema"],
 		"map": state["map_name"],
-		"floor_instances": floor_instances.multimesh.instance_count,
+		"floor_instances": _count_floor_instances(),
+		"ceiling_instances": _count_ceiling_instances(),
+		"inferred_ceiling_cells": inferred_ceiling_cell_count,
+		"inferred_ceiling_components": inferred_ceiling_component_count,
+		"ceilings_visible_in_fpp": active_camera_mode == CAMERA_FPP,
+		"active_elevation": active_elevation,
+		"visible_elevation_count": _count_visible_elevations(),
 		"map_objects": {
 			"declared": int(scene_data["objects"]["declared_count"]),
 			"walls": debug_object_counts["wall"],
+			"wall_mesh_faces": wall_mesh_face_count,
+			"wall_mesh_elevations": wall_mesh_elevation_count,
+			"wall_profile_matches": wall_profile_match_count,
+			"wall_art_overlay_faces": wall_art_overlay_face_count,
+			"wall_art_overlay_assets": wall_art_overlay_asset_count,
 			"doors": debug_object_counts["door"],
+			"door_art_overlays": door_art_overlay_count,
 			"scenery": debug_object_counts["scenery"],
 			"blocking_hexes": blocking_collision_count,
 		},

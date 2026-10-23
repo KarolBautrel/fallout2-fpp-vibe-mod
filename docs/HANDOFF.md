@@ -81,6 +81,33 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
   `open`/`locked`/`jammed`, obraca otwarte drzwi i wyłącza ich collider;
 - probe `--bridge-probe --map=arcaves` potwierdza 5 zdarzeń, otwarte drzwi i
   `door_collision_disabled = true`.
+- renderer buduje wspólną siatkę topologii ścian z zajętych heksów zamiast
+  osobnych prostokątów oraz pokazuje wyłącznie elevation bieżącej postaci;
+- eksporter rozwiązuje teraz `FID -> art/<typ>/<typ>.lst -> FRM` zgodnie z
+  `fallout2-ce`; na dwóch rzeczywistych rekordach ARCAVES potwierdzono
+  `temple19.frm` i `acavedr4.frm`. Szczegóły: `docs/ART_PIPELINE.md`.
+- read-only parser `FRM` odczytuje metadane klatek i kierunków; dowody dla
+  `temple19.frm` (1 klatka, `33 × 116`) i `acavedr4.frm` (19 klatek,
+  `105 × 97` dla pierwszej) są w ignorowanym `artifacts/`.
+- parser dekoduje `color.pal`, przezroczystość oraz klatki FRM do PNG;
+  `scene-art-cache` utworzył dla ARCAVES 126 unikalnych assetów zamiast
+  przetwarzać 3038 instancji ścian/scenerii osobno;
+- gdy `roof_ids` są puste, Godot wykrywa zamknięte regiony flood-fillem i
+  tworzy proceduralne sufity wraz z krawędzią nad ścianami: 1697 komórek/4
+  regiony dla ARTEMPLE oraz 5486 komórek/8 regionów dla trzech elevation
+  ARCAVES. Sufity są widoczne
+  w FPP i ukryte w ISO;
+- wersjonowany profil `temple_stone` pokrywa 1580 ścian ARCAVES kolorem
+  obliczonym z `temple19.frm`; pozostałe ściany pobierają kolor automatycznie
+  ze swojego źródłowego FRM.
+- Godot nakłada pierwszą klatkę cache'owanego FRM na odsłonięte powierzchnie
+  ścian: 184 powierzchnie ARTEMPLE oraz 7166 powierzchni ARCAVES. Alpha-scissor
+  eliminuje błędy sortowania przezroczystych paneli.
+- cztery drzwi ARCAVES mają źródłowe panele FRM; probe potwierdza przejście na
+  klatkę `18` po stanie `open`, równolegle z wyłączeniem collidera;
+- okienkowy benchmark ARCAVES/FPP po rozgrzaniu osiągnął średnio `59,95 FPS`
+  przez 180 klatek przy 7166 panelach ścian i 5486 komórkach sufitu. Dowód:
+  `artifacts/godot-render-performance.json`.
 
 Na prawdziwym `master.dat` znaleziono 23 140 wpisów i 155 map. Dla
 `ARTEMPLE.MAP` eksport zawiera spawn na heksie `18492`, kolumnę `107`,
@@ -179,11 +206,13 @@ cztery zdarzenia, przyrostowe dopisywanie, buforowanie niepełnej linii,
 przejście z heksa `18492` na `18491`, rotację `2` i aktywację `instance_id = 0`
 / `object_id = 16`.
 
-Test end-to-end dwóch prawdziwych procesów został wykonany, a stan drzwi jest
-już odwzorowany w debugowej geometrii i kolizji. Następny krok to zastąpienie
-pojedynczych prostokątnych placeholderów spójną geometrią ścian dla wybranego
-elevation oraz test przejścia gracza przez otwarte drzwi. Nie należy jeszcze
-hookować ani modyfikować retailowego EXE.
+Test end-to-end dwóch prawdziwych procesów został wykonany, stan drzwi jest
+odwzorowany w debugowej geometrii i kolizji, a ściany mają automatyczną siatkę
+topologii rozdzieloną na elevation. Dekodowanie palety/FRM, cache PNG, sufity,
+pierwszy profil `temple_stone`, pierwsza projekcja FRM i krańcowe klatki drzwi
+są gotowe. Następny krok to poprawa UV/proporcji grafiki źródłowej oraz płynne
+odtwarzanie klatek drzwi. Nie należy
+jeszcze hookować ani modyfikować retailowego EXE.
 
 Podczas pierwszego testu starszy launcher ustawił instalację Steam jako katalog
 roboczy i utworzył tam `data\maps\ARTEMPLE.SAV` oraz

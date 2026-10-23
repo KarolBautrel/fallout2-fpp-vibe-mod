@@ -1,0 +1,14 @@
+{
+  "schema": "fo2remix.art-profiles-v1",
+  "profiles": [
+    {
+      "id": "temple_stone",
+      "kind": "wall",
+      "art_path_prefix": "art\\walls\\temple",
+      "albedo": "4b3b30",
+      "roughness": 0.95,
+      "source_example": "art\\walls\\temple19.frm",
+      "source_opaque_average_rgb": [75, 59, 48]
+    }
+  ]
+}

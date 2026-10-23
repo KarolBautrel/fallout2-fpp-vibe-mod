@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from struct import pack
 
+from fo2remix.art_format import ArtReference
 from fo2remix.map_format import (
     MAP_HEADER_STRUCT,
     OBJECT_MULTIHEX,
@@ -64,6 +65,36 @@ def _prototype(pid: int, subtype: int | None = None) -> PrototypeSummary:
     )
 
 
+def _art(fid: int) -> ArtReference:
+    object_type = (fid & 0x0F000000) >> 24
+    type_name = "walls" if object_type == 3 else "scenery"
+    list_index = fid & 0xFFF
+    file_name = f"asset{list_index}.frm"
+    return ArtReference(
+        object_type=object_type,
+        object_type_name=type_name,
+        list_index=list_index,
+        file_name=file_name,
+        path=rf"art\{type_name}\{file_name}",
+    )
+
+
+def _art_color(fid: int) -> tuple[int, int, int]:
+    index = fid & 0xFFF
+    return (index, index + 1, index + 2)
+
+
+def _art_metadata(fid: int) -> dict[str, int]:
+    index = fid & 0xFFF
+    return {
+        "width": 10 + index,
+        "height": 20 + index,
+        "frame_count": index,
+        "frames_per_second": 11,
+        "action_frame": 0,
+    }
+
+
 def test_exports_one_present_tile_layer() -> None:
     header = MAP_HEADER_STRUCT.pack(
         20,
@@ -104,6 +135,9 @@ def test_exports_one_present_tile_layer() -> None:
         header + layer + scripts + object_section,
         source={"entry": r"maps\test.map"},
         prototype_resolver=prototypes.__getitem__,
+        art_resolver=_art,
+        art_color_resolver=_art_color,
+        art_metadata_resolver=_art_metadata,
     )
 
     assert scene["schema"] == "fo2remix.scene-v1"
@@ -121,6 +155,26 @@ def test_exports_one_present_tile_layer() -> None:
     assert [record["instance_id"] for record in scene["objects"]["records"]] == [0, 1, 2]
     assert scene["objects"]["records"][1]["object_id"] == 201
     assert scene["objects"]["records"][2]["object_id"] == 201
+    assert scene["objects"]["records"][0]["art"] == {
+        "type": "walls",
+        "list_index": 1,
+        "file_name": "asset1.frm",
+        "path": r"art\walls\asset1.frm",
+        "opaque_average_rgb": [1, 2, 3],
+        "frame": {
+            "width": 11,
+            "height": 21,
+            "frame_count": 1,
+            "frames_per_second": 11,
+            "action_frame": 0,
+        },
+    }
+    assert scene["objects"]["records"][1]["art"]["path"] == (
+        r"art\scenery\asset1.frm"
+    )
+    assert scene["objects"]["records"][2]["art"]["path"] == (
+        r"art\scenery\asset2.frm"
+    )
     blocked_instances = {
         instance_id
         for record in scene["collision"]["blocking_hexes"]

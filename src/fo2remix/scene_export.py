@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from io import BytesIO
 from typing import Any
 
+from .art_format import ArtReference
 from .map_format import (
     OBJECT_TYPE_SCENERY,
     OBJECT_TYPE_WALL,
@@ -25,6 +27,9 @@ def export_scene_v1(
     *,
     source: dict[str, str],
     prototype_resolver: PrototypeResolver,
+    art_resolver: Callable[[int], ArtReference] | None = None,
+    art_color_resolver: Callable[[int], tuple[int, int, int]] | None = None,
+    art_metadata_resolver: Callable[[int], dict[str, int]] | None = None,
 ) -> dict[str, Any]:
     map_file = read_map(BytesIO(map_data), prototype_resolver)
     core = map_file.core
@@ -33,7 +38,13 @@ def export_scene_v1(
 
     indexed_objects = list(enumerate(map_file.objects))
     exported_objects = [
-        _export_object(obj, instance_id=instance_id)
+        _export_object(
+            obj,
+            instance_id=instance_id,
+            art_resolver=art_resolver,
+            art_color_resolver=art_color_resolver,
+            art_metadata_resolver=art_metadata_resolver,
+        )
         for instance_id, obj in indexed_objects
         if obj.fid_type in {OBJECT_TYPE_SCENERY, OBJECT_TYPE_WALL}
     ]
@@ -83,7 +94,14 @@ def export_scene_v1(
     }
 
 
-def _export_object(obj: MapObject, *, instance_id: int) -> dict[str, Any]:
+def _export_object(
+    obj: MapObject,
+    *,
+    instance_id: int,
+    art_resolver: Callable[[int], ArtReference] | None,
+    art_color_resolver: Callable[[int], tuple[int, int, int]] | None,
+    art_metadata_resolver: Callable[[int], dict[str, int]] | None,
+) -> dict[str, Any]:
     column, row = tile_index_to_grid(obj.tile)
     world = hex_index_to_world(obj.tile, obj.elevation)
     kind = "wall" if obj.fid_type == OBJECT_TYPE_WALL else "door" if obj.is_door else "scenery"
@@ -119,6 +137,18 @@ def _export_object(obj: MapObject, *, instance_id: int) -> dict[str, Any]:
             "locked": bool(door_flags & 0x02000000),
             "jammed": bool(door_flags & 0x04000000),
         }
+    if art_resolver is not None:
+        art = art_resolver(obj.fid)
+        record["art"] = {
+            "type": art.object_type_name,
+            "list_index": art.list_index,
+            "file_name": art.file_name,
+            "path": art.path,
+        }
+        if art_color_resolver is not None:
+            record["art"]["opaque_average_rgb"] = list(art_color_resolver(obj.fid))
+        if art_metadata_resolver is not None:
+            record["art"]["frame"] = art_metadata_resolver(obj.fid)
     return record
 
 

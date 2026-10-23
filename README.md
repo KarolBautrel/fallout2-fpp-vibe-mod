@@ -69,5 +69,24 @@ $env:PYTHONPATH = (Join-Path (Get-Location) 'src')
   "maps\artemple.map" artifacts\artemple.scene-v1.json
 ```
 
+Inspekcja i render jednej klatki oryginalnego `FRM` do ignorowanego cache:
+
+```powershell
+.\.venv\Scripts\python.exe -m fo2remix frm-inspect `
+  "C:\Program Files (x86)\Steam\steamapps\common\Fallout 2\master.dat" `
+  "art\walls\temple19.frm" --output artifacts\temple19.frm-metadata.json
+.\.venv\Scripts\python.exe -m fo2remix frm-render `
+  "C:\Program Files (x86)\Steam\steamapps\common\Fallout 2\master.dat" `
+  "art\walls\temple19.frm" artifacts\art-cache\temple19-r0-f0.png
+```
+
+Cache unikalnych assetów użytych przez jedną wyeksportowaną scenę:
+
+```powershell
+.\.venv\Scripts\python.exe -m fo2remix scene-art-cache `
+  "C:\Program Files (x86)\Steam\steamapps\common\Fallout 2\master.dat" `
+  artifacts\arcaves.scene-v1.json artifacts\art-cache\arcaves --all-frames
+```
+
 Szczegóły znajdują się w `docs/MODDING_PLAN.md` oraz `docs/ENVIRONMENT.md`.
 

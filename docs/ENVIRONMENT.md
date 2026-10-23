@@ -77,6 +77,18 @@ Walidacja headless:
 W sandboxie warto przekierować `APPDATA` procesu do `artifacts/godot-user`,
 ponieważ Godot próbuje tworzyć `user://logs`.
 
+## REA i Ghidra
+
+Projekt ma lokalny, przypięty toolchain REA w ignorowanym `artifacts/tools/`.
+Uruchamia go wersjonowany wrapper:
+
+```powershell
+.\scripts\run-rea.ps1 doctor --provider ghidra --format json
+```
+
+Wersje, sumy kontrolne, tożsamość analizowanej binarki oraz odtwarzalne
+polecenia są zapisane w `docs/REA_INTEGRATION.md`.
+
 ## Kontrola projektu
 
 ```powershell

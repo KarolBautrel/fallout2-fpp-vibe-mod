@@ -125,7 +125,13 @@ Gitem. Instalacja Steam jest traktowana wyłącznie jako źródło do odczytu.
 
 ## Następny konkretny etap
 
-Zamknąć pionowy wycinek testem ręcznym interakcji w widocznym oknie, a potem
-podjąć decyzję integracyjną: stanowy bridge do `fallout2-ce` albo prototyp
-natywnego renderera. Jeśli następną interakcją mają być drzwi, trzeba jawnie
-zmienić mapę testową, ponieważ `ARTEMPLE.MAP` nie zawiera rekordów drzwi.
+REA 6.7.0, Ghidra 12.1.4 i wymagany przenośny toolchain są skonfigurowane
+lokalnie. Analiza retailowego `fallout2.exe` potwierdziła względem źródeł
+`fallout2-ce` trzy punkty integracji: `mainLoop` (`0x480E48`), `mapLoad`
+(`0x482B74`) i `objectSetLocation` (`0x48A568`) oraz `gDude` pod `0x6610B8`.
+Szczegóły i dowód odtworzenia są w `docs/REA_INTEGRATION.md`.
+
+Następny konkretny etap to lokalny, instrumentowany fork `fallout2-ce`, który
+emituje read-only JSONL ze zdarzeniami `map_loaded`, `player_moved` oraz
+`interaction`. Godot ma następnie konsumować jeden wspólny stan w ISO i FPP.
+Nie należy jeszcze hookować ani modyfikować retailowego EXE.

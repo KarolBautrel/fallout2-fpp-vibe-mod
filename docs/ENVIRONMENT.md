@@ -45,7 +45,8 @@ cmake --build engine\fallout2-ce\out\build\windows-x64-vs2022 `
   --config Release --verbose
 ```
 
-Wynik: `fallout2-ce.exe`, 0 błędów i 256 ostrzeżeń upstreamu/MSVC. SHA-256:
+Wynik bazowy: `fallout2-ce.exe`, 0 błędów i 256 ostrzeżeń upstreamu/MSVC.
+SHA-256 nieinstrumentowanej binarki:
 
 ```text
 7C7FA0F790A4D9E394B5F49FD7BED9B59A4141D7E5B2AE22D6EF00AD118E92ED
@@ -53,6 +54,16 @@ Wynik: `fallout2-ce.exe`, 0 błędów i 256 ostrzeżeń upstreamu/MSVC. SHA-256:
 
 Pierwsza próba z `--parallel` zakończyła się kodem 1 przy generowaniu
 nagłówków SDL. Powtórzenie sekwencyjne zakończyło się powodzeniem.
+
+Lokalny checkout ma obecnie nałożony wersjonowany bridge z
+`integration/fallout2-ce`. Instrumentowany build Release x64 również kończy
+się bez błędów. Aktualna binarka ma SHA-256:
+
+```text
+31F316049EC6B82B4B3B78FC7999474F6C1C6F5679DC1FA25B67890F9519940C
+```
+
+Instrukcje odtworzenia i testu: `docs/STATE_BRIDGE.md`.
 
 ## Uruchomienie referencyjne
 

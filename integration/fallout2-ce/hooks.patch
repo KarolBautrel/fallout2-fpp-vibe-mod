@@ -1,0 +1,59 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5e03941..723f798 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -99,0 +100,2 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
++    "src/fpp_bridge.cc"
++    "src/fpp_bridge.h"
+diff --git a/src/main.cc b/src/main.cc
+index ee67a0a..fbea857 100644
+--- a/src/main.cc
++++ b/src/main.cc
+@@ -15,0 +16 @@
++#include "fpp_bridge.h"
+@@ -339,0 +341,2 @@ static void mainLoop()
++        fppBridgePollPlayer(gDude);
++
+diff --git a/src/map.cc b/src/map.cc
+index e73109f..85366bd 100644
+--- a/src/map.cc
++++ b/src/map.cc
+@@ -18,0 +19 @@
++#include "fpp_bridge.h"
+@@ -1049,0 +1051,4 @@ err:
++    if (rc == 0) {
++        fppBridgeEmitMapLoaded(gMapHeader.name, gMapHeader.index, gDude);
++    }
++
+diff --git a/src/object.cc b/src/object.cc
+index 20b7aef..ea77fc2 100644
+--- a/src/object.cc
++++ b/src/object.cc
+@@ -14,0 +15 @@
++#include "fpp_bridge.h"
+@@ -488,0 +490,3 @@ static int objectLoadAllInternal(File* stream)
++    fppBridgeResetMapObjects();
++    int bridgeInstanceId = 0;
++
+@@ -531,0 +536,2 @@ static int objectLoadAllInternal(File* stream)
++            fppBridgeRegisterMapObject(objectListNode->obj, bridgeInstanceId++);
++
+diff --git a/src/proto_instance.cc b/src/proto_instance.cc
+index 02bb39d..4d6e1c7 100644
+--- a/src/proto_instance.cc
++++ b/src/proto_instance.cc
+@@ -14,0 +15 @@
++#include "fpp_bridge.h"
+@@ -1432,0 +1434,2 @@ int _check_scenery_ap_cost(Object* obj, Object* a2)
++static int objectUseImpl(Object* user, Object* targetObj);
++
+@@ -1434,0 +1438,9 @@ int _obj_use(Object* user, Object* targetObj)
++{
++    int result = objectUseImpl(user, targetObj);
++    if (user == gDude) {
++        fppBridgeEmitInteraction(user, targetObj, result);
++    }
++    return result;
++}
++
++static int objectUseImpl(Object* user, Object* targetObj)

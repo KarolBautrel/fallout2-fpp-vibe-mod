@@ -81,7 +81,9 @@ engine\fallout2-ce\out\build\windows-x64-vs2022\Release\fallout2-ce.exe
 Konfiguracja CMake wymaga
 `-DCMAKE_POLICY_VERSION_MINIMUM:STRING=3.5`, ponieważ CMake 4.5 usunął tryb
 kompatybilności używany przez vendored SDL2 2.26.1. Źródła upstreamu nie były
-modyfikowane.
+modyfikowane podczas bazowego buildu. Obecnie lokalny checkout ma nałożoną
+wersjonowaną nakładkę bridge’a z `integration/fallout2-ce`; można ją odtworzyć
+przez `scripts/apply-fallout2-ce-bridge.ps1`.
 
 ## Godot ISO/FPP
 
@@ -131,7 +133,11 @@ lokalnie. Analiza retailowego `fallout2.exe` potwierdziła względem źródeł
 (`0x482B74`) i `objectSetLocation` (`0x48A568`) oraz `gDude` pod `0x6610B8`.
 Szczegóły i dowód odtworzenia są w `docs/REA_INTEGRATION.md`.
 
-Następny konkretny etap to lokalny, instrumentowany fork `fallout2-ce`, który
-emituje read-only JSONL ze zdarzeniami `map_loaded`, `player_moved` oraz
-`interaction`. Godot ma następnie konsumować jeden wspólny stan w ISO i FPP.
-Nie należy jeszcze hookować ani modyfikować retailowego EXE.
+Lokalny, instrumentowany `fallout2-ce` emituje już read-only JSONL ze
+zdarzeniami `map_loaded`, `player_moved` oraz `interaction`. Nakładka, skrypty
+odtworzenia i test kontraktu są opisane w `docs/STATE_BRIDGE.md`. Pełny build
+Release x64 i test czterech zdarzeń przechodzą.
+
+Następny konkretny etap to odbiornik JSONL w Godocie i porównanie wspólnego
+heksa/elevation/rotacji oraz `instance_id` interakcji. Nie należy jeszcze
+hookować ani modyfikować retailowego EXE.

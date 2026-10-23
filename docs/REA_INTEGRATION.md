@@ -73,18 +73,19 @@ i `elevation` pod `+0x28` dla 32-bitowego buildu. Wniosek: `mainLoop` jest
 naturalnym punktem synchronizacji, `objectSetLocation` zdarzeniem zmiany
 pozycji, a `mapLoad` granicą pełnego resyncu świata.
 
-## Następna granica implementacyjna
+## Zrealizowana granica implementacyjna
 
-Nie zaczynamy od wstrzykiwania kodu do retailowego EXE. Następny prototyp to
-instrumentowany, lokalny fork `fallout2-ce`, który emituje tylko do odczytu
-zdarzenia JSONL:
+Nie zaczęliśmy od wstrzykiwania kodu do retailowego EXE. Powstała wersjonowana
+nakładka na lokalny `fallout2-ce`, która emituje tylko do odczytu zdarzenia
+JSONL:
 
 - `frame` — numer klatki i bieżący tryb;
 - `map_loaded` — mapa, elevation i pełny punkt resynchronizacji;
 - `player_moved` — heks, elevation i rotacja `gDude`;
 - `interaction` — stabilne ID celu i rezultat akcji.
 
-Godot ma konsumować ten sam strumień w ISO i FPP. Pierwszy test akceptacyjny
+Implementacja i kontrakt są opisane w `docs/STATE_BRIDGE.md`. Godot ma teraz
+konsumować ten sam strumień w ISO i FPP. Pierwszy test akceptacyjny
 porówna heks/elevation/rotację po pojedynczym ruchu oraz `instance_id` po
 pojedynczej interakcji. Dopiero po zgodności tego kontraktu ocenimy, czy
 potrzebny jest hook retailowej binarki.

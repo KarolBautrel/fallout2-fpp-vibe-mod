@@ -78,6 +78,13 @@ Dowód testu jest zapisany w ignorowanym
 
 ## Następny krok
 
-Dodać w Godocie odbiornik śledzący plik JSONL. Najpierw tylko odczyt i
-porównanie: `map_loaded.player.hex_index` musi odpowiadać logicznemu heksowi
-Godota, a `interaction.target.instance_id` aktualnie wybranemu obiektowi.
+Godot ma już odbiornik śledzący przyrost pliku JSONL. Domyślnie działa jako
+obserwator i pokazuje zgodność w HUD. Flaga `--bridge-live` wyłącza lokalny ruch
+i stosuje stan CE do wspólnego gracza oraz obiektów. Test `--bridge-probe`
+potwierdza `map_loaded`, `player_moved`, `interaction`, przyrostowe dopisywanie,
+buforowanie przeciętego rekordu JSONL i zachowanie stanu podczas ISO/FPP.
+
+Następny krok to test dwóch prawdziwych procesów: uruchomić najpierw Godota z
+`--bridge-live`, potem instrumentowany `fallout2-ce`, rozpocząć nową grę,
+wykonać jeden ruch i jedną interakcję. Dowód musi zestawić dokładnie te same
+heks/elevation/rotację i `instance_id` po obu stronach.

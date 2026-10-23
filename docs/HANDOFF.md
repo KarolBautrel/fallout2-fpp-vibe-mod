@@ -116,6 +116,8 @@ logiczny zachowuje indeks heksa; kamery tylko go obserwują.
   klatek fizyki;
 - `godot-blocking-runtime.json` — rzeczywisty test kolizji ze ścianą;
 - `godot-interaction-runtime.json` — ten sam cel i wynik interakcji w ISO/FPP;
+- `godot-bridge-runtime.json` — odbiór czterech zdarzeń CE, przyrostowy JSONL,
+  zastosowanie heksa/rotacji i wspólnego `instance_id`;
 - `artemple.scene-v1.objects.json` i `klamall.scene-v1.objects.json` —
   dowody pełnego odczytu obiektów z danych użytkownika;
 - `godot-preview00000002.png` — widok ISO;
@@ -138,6 +140,14 @@ zdarzeniami `map_loaded`, `player_moved` oraz `interaction`. Nakładka, skrypty
 odtworzenia i test kontraktu są opisane w `docs/STATE_BRIDGE.md`. Pełny build
 Release x64 i test czterech zdarzeń przechodzą.
 
-Następny konkretny etap to odbiornik JSONL w Godocie i porównanie wspólnego
-heksa/elevation/rotacji oraz `instance_id` interakcji. Nie należy jeszcze
-hookować ani modyfikować retailowego EXE.
+Godot ma już odbiornik JSONL. Domyślnie obserwuje trace i raportuje zgodność w
+HUD, a `--bridge-live` czyni CE autorytetem, wyłącza lokalny ruch i stosuje
+`map_loaded`, `player_moved` oraz udane `interaction`. Headless probe potwierdza
+cztery zdarzenia, przyrostowe dopisywanie, buforowanie niepełnej linii,
+przejście z heksa `18492` na `18491`, rotację `2` i aktywację `instance_id = 0`
+/ `object_id = 16`.
+
+Następny konkretny etap to test end-to-end dwóch prawdziwych procesów:
+`fallout2-ce` → plik JSONL → Godot `--bridge-live`, z jednym ruchem i jedną
+interakcją użytkownika. Nie należy jeszcze hookować ani modyfikować retailowego
+EXE.

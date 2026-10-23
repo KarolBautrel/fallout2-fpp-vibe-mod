@@ -56,6 +56,35 @@ func set_selection(instance_id: int) -> void:
 	_emit_logical_state()
 
 
+func apply_bridge_state(map_name: String, state: Dictionary) -> bool:
+	var hex_index := int(state.get("hex_index", -1))
+	var elevation := int(state.get("elevation", -1))
+	var rotation_index := int(state.get("rotation", -1))
+	if hex_index < 0 or hex_index >= Coordinates.HEX_GRID_WIDTH * Coordinates.HEX_GRID_HEIGHT:
+		return false
+	if elevation < 0 or elevation >= 3:
+		return false
+	if rotation_index < 0 or rotation_index >= 6:
+		return false
+
+	if not map_name.is_empty():
+		logical_state["map_name"] = map_name
+	logical_state["hex_index"] = hex_index
+	var grid := Coordinates.tile_index_to_grid(hex_index)
+	logical_state["hex_column"] = grid.x
+	logical_state["hex_row"] = grid.y
+	logical_state["elevation"] = elevation
+	logical_state["rotation"] = rotation_index
+	global_position = Coordinates.hex_index_to_world(hex_index, elevation)
+	velocity = Vector3.ZERO
+	var direction := Coordinates.direction_to_world(hex_index, rotation_index)
+	view_yaw = atan2(-direction.x, -direction.z)
+	rotation.y = view_yaw
+	_emit_logical_state()
+	motion_state_changed.emit(get_motion_snapshot())
+	return true
+
+
 func _after_motion_step() -> void:
 	if initialized:
 		_sync_logical_hex()

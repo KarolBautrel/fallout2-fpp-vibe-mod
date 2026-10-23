@@ -48,6 +48,38 @@ shared object-state dictionary. Activated debug objects turn yellow; an ISO
 selection turns cyan. The export retains Fallout's original `object_id`, but
 does not use it as a unique key because real `ARTEMPLE.MAP` records repeat it.
 
+## Live state bridge
+
+The Godot client tails `../artifacts/fallout2-ce-state.jsonl` using the
+`fo2remix.bridge-v1` contract. In the normal launch it only observes and reports
+parity in the HUD; local WASD and interactions continue to work.
+
+To make `fallout2-ce` authoritative, start Godot first:
+
+```powershell
+& "$env:USERPROFILE\Desktop\Gierka\installers\Godot_v4.7-stable_win64.exe\Godot_v4.7-stable_win64.exe" `
+  --path godot -- --bridge-live
+```
+
+Then start the instrumented engine from the repository root:
+
+```powershell
+.\scripts\run-fallout2-ce-bridge.ps1
+```
+
+In `--bridge-live` mode Godot disables local movement and applies
+`map_loaded`, `player_moved`, and successful `interaction` events from CE to
+the one shared player/object state. Camera switching remains local and cannot
+change that state.
+
+The deterministic receiver test covers incremental file growth and a JSONL
+record split between two reads:
+
+```powershell
+& "$env:USERPROFILE\Desktop\Gierka\installers\Godot_v4.7-stable_win64.exe\Godot_v4.7-stable_win64_console.exe" `
+  --headless --path godot -- --bridge-probe
+```
+
 Run the deterministic interaction parity probe with:
 
 ```powershell

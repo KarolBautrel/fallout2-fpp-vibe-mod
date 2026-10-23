@@ -2,12 +2,16 @@ extends Node3D
 
 const Coordinates = preload("res://scripts/fallout_coordinate_space.gd")
 const PlayerController = preload("res://scripts/fallout_player_controller.gd")
+const StateBridge = preload("res://scripts/fallout_state_bridge.gd")
 
 const SCENE_PATH := "res://../artifacts/artemple.scene-v1.json"
 const EVIDENCE_PATH := "res://../artifacts/godot-iso-fpp-contract.json"
 const MOVEMENT_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-movement-runtime.json"
 const BLOCKING_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-blocking-runtime.json"
 const INTERACTION_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-interaction-runtime.json"
+const BRIDGE_TRACE_PATH := "res://../artifacts/fallout2-ce-state.jsonl"
+const BRIDGE_PROBE_TRACE_PATH := "res://../artifacts/godot-bridge-probe-input.jsonl"
+const BRIDGE_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-bridge-runtime.json"
 const FALLOUT2_CE_COMMIT := "e97087b9582f37075db347a89898887320753f8b"
 
 const FLOOR_CELL_COUNT := 100 * 100
@@ -35,6 +39,12 @@ var fpp_camera: Camera3D
 var state_label: Label
 var crosshair: Label
 var hud_refresh_timer := 0.0
+var state_bridge
+var bridge_authoritative := false
+var bridge_transport_status := "OFF"
+var bridge_parity_status := "No CE state received"
+var bridge_events_observed := 0
+var bridge_events_applied := 0
 
 
 func _ready() -> void:
@@ -51,11 +61,14 @@ func _ready() -> void:
 	_create_cameras()
 	_create_hud()
 	_register_input_actions()
+	_create_state_bridge()
 	_update_cameras()
 	_run_contract_checks()
 	_set_camera_mode(_requested_start_camera())
 	_write_evidence()
-	if _has_user_argument("--interaction-probe"):
+	if _has_user_argument("--bridge-probe"):
+		_run_bridge_probe()
+	elif _has_user_argument("--interaction-probe"):
 		_run_interaction_probe()
 	elif _has_user_argument("--blocking-probe"):
 		_run_blocking_collision_probe()
@@ -310,7 +323,7 @@ func _create_hud() -> void:
 
 	var panel := ColorRect.new()
 	panel.position = Vector2(16.0, 16.0)
-	panel.size = Vector2(1100.0, 160.0)
+	panel.size = Vector2(1100.0, 188.0)
 	panel.color = Color(0.02, 0.03, 0.04, 0.82)
 	canvas.add_child(panel)
 
@@ -352,6 +365,12 @@ func _register_key(action: StringName, physical_keycode: Key) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if bridge_authoritative:
+		if event.is_action_pressed("toggle_camera"):
+			_toggle_camera()
+		elif event.is_action_pressed("ui_cancel") and active_camera_mode == CAMERA_FPP:
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		return
 	if event.is_action_pressed("toggle_camera"):
 		_toggle_camera()
 	elif event.is_action_pressed("interact"):
@@ -411,6 +430,138 @@ func _update_cameras() -> void:
 
 func _on_player_state_changed(_state: Dictionary) -> void:
 	_update_hud()
+
+
+func _create_state_bridge() -> void:
+	state_bridge = StateBridge.new()
+	state_bridge.name = "Fallout2CeStateBridge"
+	add_child(state_bridge)
+	state_bridge.event_received.connect(_on_bridge_event)
+	state_bridge.status_changed.connect(_on_bridge_status_changed)
+	state_bridge.bridge_error.connect(_on_bridge_error)
+	bridge_authoritative = (
+		_has_user_argument("--bridge-live") or _has_user_argument("--bridge-probe")
+	)
+	player.movement_enabled = not bridge_authoritative
+	var path := BRIDGE_PROBE_TRACE_PATH if _has_user_argument("--bridge-probe") else BRIDGE_TRACE_PATH
+	state_bridge.configure(path, _has_user_argument("--bridge-probe"))
+	bridge_transport_status = state_bridge.status
+
+
+func _on_bridge_status_changed(value: String) -> void:
+	bridge_transport_status = value
+	_update_hud()
+
+
+func _on_bridge_error(message: String) -> void:
+	bridge_parity_status = message
+	_update_hud()
+
+
+func _on_bridge_event(event: Dictionary) -> void:
+	bridge_events_observed += 1
+	var event_name := String(event["event"])
+	match event_name:
+		"session_started":
+			bridge_parity_status = "CE session connected"
+		"map_loaded":
+			_handle_bridge_map_loaded(event)
+		"player_moved":
+			_handle_bridge_player_moved(event)
+		"interaction":
+			_handle_bridge_interaction(event)
+		_:
+			bridge_parity_status = "Ignored CE event: %s" % event_name
+	_update_cameras()
+	_update_hud()
+
+
+func _handle_bridge_map_loaded(event: Dictionary) -> void:
+	if not event.get("map", {}) is Dictionary or not event.get("player", {}) is Dictionary:
+		bridge_parity_status = "Invalid map_loaded payload"
+		return
+	var map_state: Dictionary = event["map"]
+	var player_state: Dictionary = event["player"]
+	var expected_map: Dictionary = scene_data["map"]
+	if String(map_state.get("name", "")).to_upper() != String(expected_map["name"]).to_upper():
+		bridge_parity_status = "MAP MISMATCH: %s" % map_state.get("name", "")
+		return
+	if int(map_state.get("index", -1)) != int(expected_map["index"]):
+		bridge_parity_status = "MAP INDEX MISMATCH: %s" % map_state.get("index", -1)
+		return
+	_apply_or_compare_bridge_player(String(map_state["name"]), player_state, "map_loaded")
+
+
+func _handle_bridge_player_moved(event: Dictionary) -> void:
+	if not event.get("player", {}) is Dictionary:
+		bridge_parity_status = "Invalid player_moved payload"
+		return
+	_apply_or_compare_bridge_player("", event["player"], "player_moved")
+
+
+func _apply_or_compare_bridge_player(
+	map_name: String,
+	player_state: Dictionary,
+	event_name: String
+) -> void:
+	if bridge_authoritative:
+		if not player.apply_bridge_state(map_name, player_state):
+			bridge_parity_status = "Invalid CE player state"
+			return
+		bridge_events_applied += 1
+		bridge_parity_status = "APPLIED %s hex %d" % [
+			event_name,
+			int(player_state["hex_index"]),
+		]
+		return
+
+	var local_state: Dictionary = player.logical_state
+	var matches := (
+		int(local_state["hex_index"]) == int(player_state.get("hex_index", -1))
+		and int(local_state["elevation"]) == int(player_state.get("elevation", -1))
+		and int(local_state["rotation"]) == int(player_state.get("rotation", -1))
+	)
+	bridge_parity_status = (
+		"MATCH %s hex %d" % [event_name, int(player_state.get("hex_index", -1))]
+		if matches
+		else "OBSERVED CE hex %d / Godot hex %d" % [
+			int(player_state.get("hex_index", -1)),
+			int(local_state["hex_index"]),
+		]
+	)
+
+
+func _handle_bridge_interaction(event: Dictionary) -> void:
+	if not event.get("target", {}) is Dictionary:
+		bridge_parity_status = "Invalid interaction payload"
+		return
+	var target: Dictionary = event["target"]
+	var instance_id := int(target.get("instance_id", -1))
+	if not object_records_by_instance_id.has(instance_id):
+		bridge_parity_status = "UNKNOWN CE instance %d" % instance_id
+		return
+	var record: Dictionary = object_records_by_instance_id[instance_id]
+	var identity_matches := (
+		int(record["object_id"]) == int(target.get("object_id", -1))
+		and int(record["pid"]) == int(target.get("pid", -1))
+		and int(record["hex_index"]) == int(target.get("hex_index", -1))
+		and int(record["elevation"]) == int(target.get("elevation", -1))
+	)
+	if not identity_matches:
+		bridge_parity_status = "INTERACTION IDENTITY MISMATCH instance %d" % instance_id
+		return
+
+	var result := int(event.get("result", -1))
+	bridge_parity_status = "MATCH interaction instance %d result %d" % [instance_id, result]
+	if bridge_authoritative and result == 0 and object_states.has(instance_id):
+		object_states[instance_id]["activated"] = true
+		player.set_selection(instance_id)
+		interaction_status = "CE activated instance %d / Fallout object %d" % [
+			instance_id,
+			int(record["object_id"]),
+		]
+		bridge_events_applied += 1
+		_refresh_object_colors()
 
 
 func _interact_from_active_camera() -> void:
@@ -550,6 +701,7 @@ func _update_hud() -> void:
 		"%s  |  %s  |  %d FPS  |  speed %.2f\n"
 		+ "hex %d  grid (%d, %d)  elevation %d  direction %d\n"
 		+ "walls %d  doors %d  scenery %d  blocking hexes %d  selected instance %d\n"
+		+ "bridge %s  authority %s  events %d/%d  %s\n"
 		+ "%s\n"
 		+ "Mouse: look/select   WASD: move/strafe   E: interact   SHIFT: sprint   TAB: ISO/FPP"
 	) % [
@@ -567,6 +719,11 @@ func _update_hud() -> void:
 		debug_object_counts["scenery"],
 		blocking_collision_count,
 		state["selection"],
+		bridge_transport_status,
+		"CE" if bridge_authoritative else "GODOT",
+		bridge_events_observed,
+		bridge_events_applied,
+		bridge_parity_status,
 		interaction_status,
 	]
 
@@ -682,6 +839,139 @@ func _has_user_argument(expected: String) -> bool:
 		if argument.to_lower() == expected:
 			return true
 	return false
+
+
+func _run_bridge_probe() -> void:
+	var spawn: Dictionary = scene_data["spawn"]
+	var source_hex := int(spawn["hex_index"])
+	var moved_hex := Coordinates.tile_in_direction(source_hex, 0)
+	var target: Dictionary = scene_data["objects"]["records"][0]
+	var target_instance_id := int(target["instance_id"])
+	assert(object_states.has(target_instance_id), "Bridge probe target is not interactable")
+
+	var events := [
+		{
+			"schema": "fo2remix.bridge-v1",
+			"sequence": 0,
+			"event": "session_started",
+		},
+		{
+			"schema": "fo2remix.bridge-v1",
+			"sequence": 1,
+			"event": "map_loaded",
+			"map": scene_data["map"].duplicate(true),
+			"player": {
+				"object_id": 18000,
+				"pid": 16777216,
+				"hex_index": source_hex,
+				"elevation": int(spawn["elevation"]),
+				"rotation": int(spawn["rotation"]),
+			},
+		},
+		{
+			"schema": "fo2remix.bridge-v1",
+			"sequence": 2,
+			"event": "player_moved",
+			"player": {
+				"object_id": 18000,
+				"pid": 16777216,
+				"hex_index": moved_hex,
+				"elevation": int(spawn["elevation"]),
+				"rotation": 2,
+			},
+		},
+		{
+			"schema": "fo2remix.bridge-v1",
+			"sequence": 3,
+			"event": "interaction",
+			"actor": {
+				"object_id": 18000,
+				"pid": 16777216,
+				"hex_index": moved_hex,
+				"elevation": int(spawn["elevation"]),
+				"rotation": 2,
+			},
+			"target": {
+				"instance_id": target_instance_id,
+				"object_id": int(target["object_id"]),
+				"pid": int(target["pid"]),
+				"hex_index": int(target["hex_index"]),
+				"elevation": int(target["elevation"]),
+				"rotation": int(target["rotation"]),
+			},
+			"result": 0,
+		},
+	]
+
+	var trace_path := ProjectSettings.globalize_path(BRIDGE_PROBE_TRACE_PATH)
+	var trace_file := FileAccess.open(trace_path, FileAccess.WRITE)
+	assert(trace_file != null, "Could not write bridge probe trace")
+	trace_file.store_line(JSON.stringify(events[0]))
+	trace_file.store_line(JSON.stringify(events[1]))
+	trace_file.close()
+	state_bridge.poll_now()
+	assert(state_bridge.events_received == 2, "Godot did not consume initial bridge events")
+
+	var moved_line := JSON.stringify(events[2])
+	var split_index := int(moved_line.length() / 2)
+	var append_file := FileAccess.open(trace_path, FileAccess.READ_WRITE)
+	assert(append_file != null, "Could not append partial bridge probe event")
+	append_file.seek_end()
+	append_file.store_string(moved_line.substr(0, split_index))
+	append_file.close()
+	state_bridge.poll_now()
+	assert(state_bridge.events_received == 2, "Partial JSONL event was consumed too early")
+
+	append_file = FileAccess.open(trace_path, FileAccess.READ_WRITE)
+	assert(append_file != null, "Could not finish partial bridge probe event")
+	append_file.seek_end()
+	append_file.store_line(moved_line.substr(split_index))
+	append_file.store_line(JSON.stringify(events[3]))
+	append_file.close()
+	state_bridge.poll_now()
+
+	assert(state_bridge.events_received == 4, "Godot did not consume all bridge events")
+	assert(bridge_events_observed == 4, "Main scene did not observe all bridge events")
+	assert(bridge_events_applied == 3, "Unexpected number of applied bridge events")
+	assert(int(player.logical_state["hex_index"]) == moved_hex)
+	assert(int(player.logical_state["elevation"]) == int(spawn["elevation"]))
+	assert(int(player.logical_state["rotation"]) == 2)
+	assert(int(player.logical_state["selection"]) == target_instance_id)
+	assert(bool(object_states[target_instance_id]["activated"]))
+	var expected_world := Coordinates.hex_index_to_world(moved_hex, int(spawn["elevation"]))
+	assert(player.global_position.distance_to(expected_world) < 0.00001)
+
+	var state_before_camera_switch: Dictionary = player.get_state_snapshot()
+	_toggle_camera()
+	_toggle_camera()
+	assert(player.get_state_snapshot() == state_before_camera_switch)
+
+	var evidence := {
+		"schema": "fo2remix.godot-bridge-runtime-v1",
+		"bridge_schema": state_bridge.SCHEMA,
+		"fallout2_ce_commit": FALLOUT2_CE_COMMIT,
+		"events_received": state_bridge.events_received,
+		"events_applied": bridge_events_applied,
+		"source_hex": source_hex,
+		"applied_hex": moved_hex,
+		"applied_elevation": int(player.logical_state["elevation"]),
+		"applied_rotation": int(player.logical_state["rotation"]),
+		"applied_world": _vector_to_array(player.global_position),
+		"target_instance_id": target_instance_id,
+		"target_object_id": int(target["object_id"]),
+		"interaction_activated": bool(object_states[target_instance_id]["activated"]),
+		"camera_round_trip_preserved_bridge_state": true,
+		"local_movement_disabled_under_ce_authority": not player.movement_enabled,
+		"incremental_tail_verified": true,
+		"partial_jsonl_buffering_verified": true,
+		"passed": true,
+	}
+	var evidence_path := ProjectSettings.globalize_path(BRIDGE_RUNTIME_EVIDENCE_PATH)
+	var evidence_file := FileAccess.open(evidence_path, FileAccess.WRITE)
+	assert(evidence_file != null, "Could not write bridge runtime evidence")
+	evidence_file.store_string(JSON.stringify(evidence, "  "))
+	print("FO2REMIX_BRIDGE_RUNTIME %s" % JSON.stringify(evidence))
+	get_tree().quit(0)
 
 
 func _run_runtime_movement_probe() -> void:
@@ -929,6 +1219,13 @@ func _write_evidence() -> void:
 			"fpp_targeting": "center camera ray",
 			"iso_targeting": "mouse camera ray",
 			"shared_object_state": true,
+		},
+		"state_bridge": {
+			"schema": state_bridge.SCHEMA,
+			"trace_path": BRIDGE_TRACE_PATH,
+			"default_mode": "observe",
+			"authoritative_argument": "--bridge-live",
+			"probe_argument": "--bridge-probe",
 		},
 		"world_to_hex_round_trip_records": round_trip_count,
 		"wasd": {

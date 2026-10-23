@@ -88,6 +88,13 @@ Walidacja headless:
 W sandboxie warto przekierować `APPDATA` procesu do `artifacts/godot-user`,
 ponieważ Godot próbuje tworzyć `user://logs`.
 
+Walidacja odbiornika bridge’a:
+
+```powershell
+& "$env:USERPROFILE\Desktop\Gierka\installers\Godot_v4.7-stable_win64.exe\Godot_v4.7-stable_win64_console.exe" `
+  --headless --path godot -- --bridge-probe
+```
+
 ## REA i Ghidra
 
 Projekt ma lokalny, przypięty toolchain REA w ignorowanym `artifacts/tools/`.

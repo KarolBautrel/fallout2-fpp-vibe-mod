@@ -69,6 +69,8 @@ Pierwszy pionowy wycinek powstanie jako parser/eksporter plus niezależny render
 - [x] skonfigurować REA/Ghidrę i potwierdzić punkty integracji względem
   `fallout2-ce`;
 - [x] dodać do lokalnego forka `fallout2-ce` read-only bridge JSONL;
+- [x] dodać odbiornik Godot z trybem obserwacji, autorytetem CE i testem
+  przyrostowego JSONL;
 - [ ] zsynchronizować `map_loaded`, `player_moved` i `interaction` z Godotem;
 - [ ] potwierdzić zgodność heksa, elevation, rotacji oraz celu interakcji w ISO
   i FPP;

@@ -52,10 +52,69 @@
       "animate": true
     },
     {
+      "id": "outdoor_fire_pit",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\firpit",
+      "render_mode": "billboard",
+      "pixels_per_meter": 46.0,
+      "animate": true
+    },
+    {
+      "id": "dead_tree",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\tree",
+      "render_mode": "proxy_tree",
+      "pixels_per_meter": 54.0
+    },
+    {
+      "id": "rock",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\rock",
+      "render_mode": "proxy_rock",
+      "pixels_per_meter": 52.0,
+      "depth": 0.65
+    },
+    {
+      "id": "temple_furniture",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\tempsf",
+      "render_mode": "proxy_box",
+      "pixels_per_meter": 54.0,
+      "height": 0.72,
+      "depth": 0.55
+    },
+    {
+      "id": "container_chest",
+      "kind": "item",
+      "art_path_prefix": "art\\items\\chest",
+      "render_mode": "proxy_box",
+      "width": 0.95,
+      "height": 0.58,
+      "depth": 0.58
+    },
+    {
+      "id": "vase",
+      "kind": "item",
+      "art_path_prefix": "art\\items\\arvase",
+      "render_mode": "proxy_vase",
+      "width": 0.46,
+      "height": 0.68,
+      "depth": 0.46
+    },
+    {
+      "id": "bones",
+      "kind": "item",
+      "art_path_prefix": "art\\items\\arbones",
+      "render_mode": "proxy_rock",
+      "width": 0.65,
+      "height": 0.12,
+      "depth": 0.42
+    },
+    {
       "id": "source_scenery",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\",
-      "render_mode": "billboard",
+      "render_mode": "hidden",
       "pixels_per_meter": 48.0
     }
   ]

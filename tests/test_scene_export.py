@@ -165,6 +165,8 @@ def test_exports_one_present_tile_layer() -> None:
         "distance": 0,
         "intensity": 0,
     }
+    assert scene["objects"]["records"][0]["prototype"]["flags"] == 0
+    assert scene["objects"]["records"][0]["prototype"]["extended_flags"] == 0
     assert scene["objects"]["records"][0]["art"] == {
         "type": "walls",
         "list_index": 1,

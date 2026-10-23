@@ -145,6 +145,8 @@ def _export_object(
         "prototype": {
             "path": obj.prototype.path,
             "subtype": obj.prototype.subtype_name,
+            "flags": obj.prototype.flags & 0xFFFFFFFF,
+            "extended_flags": obj.prototype.extended_flags & 0xFFFFFFFF,
         },
         "hex_index": obj.tile,
         "hex_column": column,

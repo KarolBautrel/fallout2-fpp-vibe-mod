@@ -4,6 +4,7 @@ const Coordinates = preload("res://scripts/fallout_coordinate_space.gd")
 const PlayerController = preload("res://scripts/fallout_player_controller.gd")
 const StateBridge = preload("res://scripts/fallout_state_bridge.gd")
 const StoneWallShader = preload("res://shaders/fallout_stone_wall.gdshader")
+const CaveWallShader = preload("res://shaders/fallout_cave_wall.gdshader")
 
 const DEFAULT_MAP_KEY := "artemple"
 const SCENE_PATHS := {
@@ -489,9 +490,8 @@ func _create_floor_footprint_ceiling(layer: Dictionary, cell_basis: Basis) -> vo
 	if cell_count == 0:
 		return
 
-	var material := StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	material.roughness = 0.97
+	var material := ShaderMaterial.new()
+	material.shader = CaveWallShader
 	var cell_mesh := BoxMesh.new()
 	cell_mesh.size = Vector3.ONE
 	cell_mesh.material = material
@@ -712,59 +712,32 @@ func _create_map_object_debug_geometry() -> void:
 
 
 func _create_wall_topology_mesh(records: Array[Dictionary]) -> void:
-	var cells_by_elevation := {}
+	var records_by_elevation := {}
 	for record in records:
-		if String(_art_profile_for_record(record).get("render_mode", "geometry")) == "hidden":
-			continue
 		var elevation := int(record["elevation"])
-		if not cells_by_elevation.has(elevation):
-			cells_by_elevation[elevation] = {}
-		var tile := int(record["hex_index"])
-		if not cells_by_elevation[elevation].has(tile):
-			cells_by_elevation[elevation][tile] = record
+		if not records_by_elevation.has(elevation):
+			records_by_elevation[elevation] = []
+		records_by_elevation[elevation].append(record)
 
 	wall_mesh_face_count = 0
-	wall_mesh_elevation_count = cells_by_elevation.size()
-	for elevation_value in cells_by_elevation:
+	wall_mesh_elevation_count = 0
+	for elevation_value in records_by_elevation:
 		var elevation := int(elevation_value)
-		var cells: Dictionary = cells_by_elevation[elevation]
 		var surface := SurfaceTool.new()
 		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-		for tile_value in cells:
-			var tile := int(tile_value)
-			var record: Dictionary = cells[tile]
-			var center := Coordinates.hex_index_to_world(tile, elevation)
-			var wall_color := _debug_wall_color(record)
-			var neighbors: Array[int] = []
-			for direction_index in 6:
-				var neighbor := Coordinates.tile_in_direction(tile, direction_index)
-				if neighbor != tile and cells.has(neighbor):
-					neighbors.append(neighbor)
-					if neighbor > tile:
-						_add_wall_segment(
-							surface,
-							center,
-							Coordinates.hex_index_to_world(neighbor, elevation),
-							wall_color
-						)
-			if neighbors.size() == 1:
-				var neighbor_center := Coordinates.hex_index_to_world(neighbors[0], elevation)
-				var extension := (center - neighbor_center).normalized() * 0.5
-				_add_wall_segment(surface, center, center + extension, wall_color)
-			elif neighbors.is_empty():
-				_add_wall_segment(
-					surface,
-					center - Vector3.RIGHT * 0.5,
-					center + Vector3.RIGHT * 0.5,
-					wall_color
-				)
+		_add_wall_cell_volume(surface, records_by_elevation[elevation], elevation)
 
 		surface.generate_normals()
 		var mesh := surface.commit()
 		if mesh == null:
 			continue
+		wall_mesh_elevation_count += 1
 		var material := ShaderMaterial.new()
-		material.shader = StoneWallShader
+		material.shader = (
+			CaveWallShader
+			if _map_stem(String(scene_data["map"]["name"])) == "arcaves"
+			else StoneWallShader
+		)
 		mesh.surface_set_material(0, material)
 		var instance := MeshInstance3D.new()
 		instance.name = "WallTopologyElevation%d" % elevation
@@ -772,19 +745,34 @@ func _create_wall_topology_mesh(records: Array[Dictionary]) -> void:
 		_get_elevation_root(elevation).add_child(instance)
 
 
-func _add_wall_segment(
+func _add_wall_cell_volume(
 	surface: SurfaceTool,
-	start: Vector3,
-	end: Vector3,
-	color: Color
+	records: Array,
+	elevation: int
 ) -> void:
-	if start.distance_squared_to(end) < 0.001:
-		return
-	var start_top := start + Vector3.UP * Coordinates.ELEVATION_HEIGHT
-	var end_top := end + Vector3.UP * Coordinates.ELEVATION_HEIGHT
-	_add_colored_triangle(surface, start, end_top, end, color)
-	_add_colored_triangle(surface, start, start_top, end_top, color)
-	wall_mesh_face_count += 2
+	var records_by_cell := {}
+	for record_value in records:
+		var record: Dictionary = record_value
+		records_by_cell[int(record["hex_index"])] = record
+	for tile_value in records_by_cell:
+		var tile := int(tile_value)
+		var center := Coordinates.hex_index_to_world(tile, elevation)
+		var color := _debug_wall_color(records_by_cell[tile])
+		for direction_index in 6:
+			var neighbor := Coordinates.tile_in_direction(tile, direction_index)
+			if neighbor != tile and records_by_cell.has(neighbor):
+				continue
+			var outward := Coordinates.direction_to_world(tile, direction_index)
+			var tangent := Vector3(-outward.z, 0.0, outward.x)
+			var face_center := center + outward * 0.5
+			var half_side := 0.292
+			var start := face_center - tangent * half_side
+			var end := face_center + tangent * half_side
+			var start_top := start + Vector3.UP * Coordinates.ELEVATION_HEIGHT
+			var end_top := end + Vector3.UP * Coordinates.ELEVATION_HEIGHT
+			_add_colored_triangle(surface, start, end_top, end, color)
+			_add_colored_triangle(surface, start, start_top, end_top, color)
+			wall_mesh_face_count += 2
 
 
 func _add_colored_triangle(
@@ -804,7 +792,7 @@ func _add_colored_triangle(
 
 func _debug_wall_color(record: Dictionary) -> Color:
 	var profile := _art_profile_for_record(record)
-	if not profile.is_empty():
+	if profile.has("albedo"):
 		return Color(String(profile["albedo"]))
 	var art: Dictionary = record.get("art", {})
 	var average_rgb: Array = art.get("opaque_average_rgb", [])
@@ -983,13 +971,19 @@ func _create_scenery_art_overlays(records: Array[Dictionary]) -> Dictionary:
 	prop_art_overlay_count = 0
 	for record in records:
 		var profile := _art_profile_for_record(record)
-		if String(profile.get("render_mode", "billboard")) == "hidden":
+		var render_mode := String(profile.get("render_mode", "hidden"))
+		if render_mode == "hidden":
 			var hidden_elevation := int(record["elevation"])
 			var hidden_light_position := Coordinates.hex_index_to_world(
 				int(record["hex_index"]),
 				hidden_elevation
 			) + Vector3.UP * 1.15
 			_create_prop_light(record, profile, hidden_light_position)
+			continue
+		if render_mode.begins_with("proxy_"):
+			if _create_proxy_visual(record, profile, render_mode):
+				rendered[int(record["instance_id"])] = true
+				prop_art_overlay_count += 1
 			continue
 		var art: Dictionary = record.get("art", {})
 		var source_path := String(art.get("path", ""))
@@ -1073,9 +1067,124 @@ func _create_scenery_art_overlays(records: Array[Dictionary]) -> Dictionary:
 	return rendered
 
 
+func _create_proxy_visual(
+	record: Dictionary,
+	profile: Dictionary,
+	render_mode: String
+) -> bool:
+	var art: Dictionary = record.get("art", {})
+	var frame: Dictionary = art.get("frame", {})
+	var source_width := float(frame.get("width", 32))
+	var source_height := float(frame.get("height", 48))
+	var pixels_per_meter := float(profile.get("pixels_per_meter", PROP_PIXELS_PER_METER))
+	var width := clampf(source_width / pixels_per_meter, 0.25, 2.4)
+	var height := clampf(source_height / pixels_per_meter, 0.25, 2.85)
+	var depth := float(profile.get("depth", maxf(width * 0.55, 0.24)))
+	width = float(profile.get("width", width))
+	height = float(profile.get("height", height))
+	var mesh: PrimitiveMesh
+	match render_mode:
+		"proxy_tree":
+			var cylinder := CylinderMesh.new()
+			cylinder.height = maxf(height, 1.8)
+			cylinder.top_radius = maxf(width * 0.10, 0.06)
+			cylinder.bottom_radius = maxf(width * 0.18, 0.12)
+			cylinder.radial_segments = 7
+			mesh = cylinder
+			height = cylinder.height
+		"proxy_rock":
+			var sphere := SphereMesh.new()
+			sphere.radius = 0.5
+			sphere.height = 1.0
+			sphere.radial_segments = 10
+			sphere.rings = 6
+			mesh = sphere
+		"proxy_vase":
+			var vase := CylinderMesh.new()
+			vase.height = maxf(height, 0.55)
+			vase.top_radius = maxf(width * 0.28, 0.10)
+			vase.bottom_radius = maxf(width * 0.42, 0.16)
+			vase.radial_segments = 10
+			mesh = vase
+			height = vase.height
+		_:
+			var box := BoxMesh.new()
+			box.size = Vector3(width, height, depth)
+			mesh = box
+	var material := StandardMaterial3D.new()
+	var source_color := _record_source_color(record, Color("655848"))
+	material.albedo_color = source_color.lightened(0.08)
+	material.roughness = 0.9
+	mesh.material = material
+	var instance_id := int(record["instance_id"])
+	var elevation := int(record["elevation"])
+	var instance: Node3D
+	if render_mode == "proxy_tree":
+		instance = _create_tree_proxy(mesh, material, height, width)
+	else:
+		var mesh_instance := MeshInstance3D.new()
+		mesh_instance.mesh = mesh
+		mesh_instance.position.y = height * 0.5
+		if render_mode == "proxy_rock":
+			mesh_instance.scale = Vector3(
+				maxf(width, 0.35),
+				maxf(height, 0.25),
+				maxf(depth, 0.35)
+			)
+		instance = mesh_instance
+	instance.name = "Proxy%d_%s" % [instance_id, render_mode]
+	instance.position = Coordinates.hex_index_to_world(int(record["hex_index"]), elevation)
+	var direction := Coordinates.direction_to_world(
+		int(record["hex_index"]),
+		int(record.get("rotation", 0))
+	)
+	instance.rotation.y = atan2(-direction.x, -direction.z)
+	_get_elevation_root(elevation).add_child(instance)
+	object_visuals[instance_id] = {
+		"kind": "prop",
+		"instance": instance,
+		"material": material,
+	}
+	object_instance_colors[instance_id] = material.albedo_color
+	_create_prop_light(record, profile, instance.position)
+	return true
+
+
+func _create_tree_proxy(
+	trunk_mesh: PrimitiveMesh,
+	material: StandardMaterial3D,
+	height: float,
+	width: float
+) -> Node3D:
+	var root := Node3D.new()
+	var trunk := MeshInstance3D.new()
+	trunk.name = "Trunk"
+	trunk.mesh = trunk_mesh
+	trunk.position.y = height * 0.5
+	root.add_child(trunk)
+	for branch_index in 3:
+		var angle := float(branch_index) * TAU / 3.0 + 0.35
+		var direction := Vector3(cos(angle) * 0.62, 0.78, sin(angle) * 0.62).normalized()
+		var branch_length := height * (0.28 + float(branch_index) * 0.035)
+		var branch_mesh := CylinderMesh.new()
+		branch_mesh.height = branch_length
+		branch_mesh.top_radius = maxf(width * 0.035, 0.025)
+		branch_mesh.bottom_radius = maxf(width * 0.075, 0.045)
+		branch_mesh.radial_segments = 6
+		branch_mesh.material = material
+		var branch := MeshInstance3D.new()
+		branch.name = "Branch%d" % branch_index
+		branch.mesh = branch_mesh
+		var base := Vector3.UP * height * (0.48 + float(branch_index) * 0.10)
+		branch.position = base + direction * branch_length * 0.5
+		branch.basis = Basis(Quaternion(Vector3.UP, direction))
+		root.add_child(branch)
+	return root
+
+
 func _is_hidden_scenery(record: Dictionary) -> bool:
 	var profile := _art_profile_for_record(record)
-	return String(profile.get("render_mode", "billboard")) == "hidden"
+	return String(profile.get("render_mode", "hidden")) == "hidden"
 
 
 func _create_prop_light(record: Dictionary, profile: Dictionary, position: Vector3) -> void:
@@ -1148,8 +1257,7 @@ func _refresh_prop_lights() -> void:
 		var source: Dictionary = ranked[index]["source"]
 		var light: OmniLight3D = source["node"]
 		light.visible = true
-		var flicker := 0.92 + 0.08 * sin(prop_animation_time * 9.0 + float(source["phase"]))
-		light.light_energy = float(source["base_energy"]) * flicker
+		light.light_energy = float(source["base_energy"])
 
 
 func _load_cached_image_texture(path: String) -> Texture2D:
@@ -1262,10 +1370,7 @@ func _count_wall_elevations() -> int:
 	var elevations := {}
 	for record_value in scene_data["objects"]["records"]:
 		var record: Dictionary = record_value
-		if (
-			String(record.get("kind", "")) == "wall"
-			and String(_art_profile_for_record(record).get("render_mode", "geometry")) != "hidden"
-		):
+		if String(record.get("kind", "")) == "wall":
 			elevations[int(record["elevation"])] = true
 	return elevations.size()
 
@@ -2616,7 +2721,11 @@ func _write_evidence() -> void:
 			"wall_mesh_faces": wall_mesh_face_count,
 			"wall_mesh_elevations": wall_mesh_elevation_count,
 			"wall_profile_matches": wall_profile_match_count,
-			"wall_material": "procedural_stone_from_source_palette",
+			"wall_material": (
+				"procedural_cave_rock_from_source_palette"
+				if _map_stem(String(scene_data["map"]["name"])) == "arcaves"
+				else "procedural_stone_from_source_palette"
+			),
 			"doors": debug_object_counts["door"],
 			"door_art_overlays": door_art_overlay_count,
 			"scenery": debug_object_counts["scenery"],

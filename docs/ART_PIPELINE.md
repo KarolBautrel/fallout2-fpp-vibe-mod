@@ -53,10 +53,14 @@ rekordów `block.frm`. Godot zachowuje ten model zamiast przypisywać zgadywane
 
 ## Co jest automatyczne
 
-Godot buduje obecnie spójną siatkę ścian z segmentów łączących sąsiednie rekordy
-MAP. Dzięki temu ściana jest płaszczyzną, a nie sześciokątnym słupem na każdym
-heksie. Techniczne `art\\walls\\block.frm` nie są renderowane, lecz nadal
-uczestniczą w kolizji. Podłogi, ściany, drzwi i sceneria z innych elevation są ukrywane,
+Godot buduje obecnie zamkniętą siatkę graniczną sumy heksów zajętych przez
+rekordy ścian MAP. Wspólne krawędzie są usuwane, więc sąsiednie komórki nie
+tworzą nakładających się płaszczyzn ani szczelin. Techniczny sprite
+`art\\walls\\block.frm` pozostaje niewidoczny, ale jego heks uczestniczy w
+topologii i kolizji; dzięki temu ARTEMPLE zachowuje bryłę budowli mimo braku
+zwykłych rekordów ścian. Świątynia używa proceduralnego kamienia, a ARCAVES
+osobnego, ciągłego materiału skały bez ceglanego wzoru. Podłogi, ściany, drzwi
+i sceneria z innych elevation są ukrywane,
 gdy postać znajduje się na bieżącym poziomie. Ten kod działa na dowolnym
 `scene-v1`, więc kolejna lokacja nie wymaga osobnego modelowania topologii.
 Jeżeli MAP ma jawne `roof_ids`, powstają z nich sufity. Gdy dachy są puste,
@@ -69,12 +73,16 @@ Sufity są widoczne w FPP, ukryte w ISO i dzielone według aktywnego elevation.
 Podłogi nie używają już kolorowych placeholderów. Typ `tiles` jest rozwiązywany
 przez ten sam `FID -> .lst -> FRM`, a izometryczny romb `80 x 36` jest mapowany
 na płaszczyznę świata przez cztery zmierzone narożniki nieprzezroczystego
-obszaru. ARCAVES wykorzystuje 25 rodzin kafli, a ARTEMPLE 166. Dekoracje
-scenerii są automatycznie tworzone jako billboardy 2.5D z zachowaniem klatek
-FRM; ARCAVES ma 119 takich grafik oraz 7 obiektów `item`, a ARTEMPLE 127 grafik
-scenerii. Wśród itemów ARCAVES są trzy `chest1.frm`, dwie wazy i kości. Skrzynie
-zachowują klatkę stanu z MAP i nie zapętlają animacji otwierania. Maksymalnie 12
-najbliższych źródłowych świateł na aktywnym elevation jest włączonych jednocześnie.
+obszaru. ARCAVES wykorzystuje 25 rodzin kafli, a ARTEMPLE 166. Surowe
+izometryczne FRM nie są już domyślnie ustawiane pionowo w świecie FPP, ponieważ
+powodowało to spłaszczone, źle zakotwiczone karty. Jawna lista bezpiecznych
+rodzin zachowuje billboardy tylko dla efektów takich jak pochodnie, ogień i
+wodospad. Drzewa, skały, wyposażenie świątyni, skrzynie, wazy i kości dostają
+stabilne bryły proxy w dokładnych pozycjach MAP; nierozpoznane dekoracje są
+ukryte do czasu dodania profilu rodziny. ARCAVES ma 7 itemów: cztery skrzynie
+`chest1.frm`, dwie wazy i kości. Maksymalnie 12 najbliższych źródłowych świateł
+na aktywnym elevation jest włączonych jednocześnie, ze stałą energią bez
+syntetycznego migotania.
 
 ## Czego nie da się odzyskać automatycznie 1:1
 
@@ -100,7 +108,8 @@ zastąpi danych `MAP`/`PRO`/`FRM`.
 
 ## Następny etap
 
-Po teście użytkownika następnym krokiem będzie korekta wyjątków kotwic i skali
-billboardów, płynne odtwarzanie pośrednich klatek drzwi oraz pierwszy ruchomy
-critter. Profile nadal są definiowane dla rodzin assetów, nie osobno dla map.
-Wygenerowane tekstury pozostają w ignorowanym `artifacts/`.
+Po teście użytkownika następnym krokiem będzie porównanie kilku konkretnych
+punktów mapy ISO/FPP, korekta profili rodzin proxy oraz płynne odtwarzanie
+pośrednich klatek drzwi. Dopiero po zgodności układu i blokad dojdzie pierwszy
+ruchomy critter. Profile nadal są definiowane dla rodzin assetów, nie osobno
+dla map. Wygenerowane tekstury pozostają w ignorowanym `artifacts/`.

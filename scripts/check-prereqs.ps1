@@ -23,6 +23,37 @@ function Find-Command {
     return $null
 }
 
+function Find-VsCompiler {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere)) {
+        return $null
+    }
+
+    $installationPath = & $vswhere `
+        -latest `
+        -products '*' `
+        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+        -property installationPath
+    if (-not $installationPath) {
+        return $null
+    }
+
+    $compiler = Get-ChildItem `
+        -LiteralPath (Join-Path $installationPath 'VC\Tools\MSVC') `
+        -Filter cl.exe `
+        -File `
+        -Recurse `
+        -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -like '*\bin\Hostx64\x64\cl.exe' } |
+        Sort-Object FullName -Descending |
+        Select-Object -First 1
+
+    if ($compiler) {
+        return $compiler.FullName
+    }
+    return $null
+}
+
 $gameFiles = foreach ($name in $requiredGameFiles) {
     $fullPath = Join-Path $gamePath $name
     [ordered]@{ name = $name; exists = Test-Path -LiteralPath $fullPath }
@@ -36,11 +67,16 @@ if (-not $detectedGodot -and $GodotPath -and (Test-Path -LiteralPath $GodotPath)
     }
 }
 
+$compiler = Find-Command @('cl.exe', 'clang-cl.exe')
+if (-not $compiler) {
+    $compiler = Find-VsCompiler
+}
+
 $result = [ordered]@{
     git = Find-Command @('git.exe') -VerifyVersion
     python = Find-Command @('python.exe', 'py.exe') -VerifyVersion
     cmake = Find-Command @('cmake.exe') -VerifyVersion
-    compiler = Find-Command @('cl.exe', 'clang-cl.exe')
+    compiler = $compiler
     godot = $detectedGodot
     fallout2_path = $gamePath
     fallout2_exists = Test-Path -LiteralPath $gamePath

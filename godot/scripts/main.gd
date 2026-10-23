@@ -1,0 +1,489 @@
+extends Node3D
+
+const Coordinates = preload("res://scripts/fallout_coordinate_space.gd")
+const PlayerController = preload("res://scripts/fallout_player_controller.gd")
+
+const SCENE_PATH := "res://../artifacts/artemple.scene-v1.json"
+const EVIDENCE_PATH := "res://../artifacts/godot-iso-fpp-contract.json"
+const MOVEMENT_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-movement-runtime.json"
+const FALLOUT2_CE_COMMIT := "e97087b9582f37075db347a89898887320753f8b"
+
+const FLOOR_CELL_COUNT := 100 * 100
+const FLOOR_THICKNESS := 0.08
+const CAMERA_ISO := "ISO"
+const CAMERA_FPP := "FPP"
+
+var scene_data: Dictionary
+var active_camera_mode := CAMERA_FPP
+var floor_instances: MultiMeshInstance3D
+var player
+var iso_camera: Camera3D
+var fpp_camera: Camera3D
+var state_label: Label
+var crosshair: Label
+var hud_refresh_timer := 0.0
+
+
+func _ready() -> void:
+	_load_scene_data()
+	if scene_data.is_empty():
+		return
+
+	_create_environment()
+	_create_floor_grid()
+	_create_ground_collision()
+	_create_player()
+	_create_cameras()
+	_create_hud()
+	_register_input_actions()
+	_update_cameras()
+	_run_contract_checks()
+	_set_camera_mode(_requested_start_camera())
+	_write_evidence()
+	if _has_user_argument("--movement-probe"):
+		_run_runtime_movement_probe()
+
+
+func _process(delta: float) -> void:
+	if player == null:
+		return
+	_update_cameras()
+	hud_refresh_timer -= delta
+	if hud_refresh_timer <= 0.0:
+		hud_refresh_timer = 0.25
+		_update_hud()
+
+
+func _load_scene_data() -> void:
+	var absolute_path := ProjectSettings.globalize_path(SCENE_PATH)
+	var file := FileAccess.open(absolute_path, FileAccess.READ)
+	if file == null:
+		push_error("Missing scene JSON: %s" % absolute_path)
+		get_tree().quit(2)
+		return
+
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if not parsed is Dictionary or parsed.get("schema", "") != "fo2remix.scene-v1":
+		push_error("Unsupported or invalid scene JSON: %s" % absolute_path)
+		get_tree().quit(3)
+		return
+	scene_data = parsed
+
+
+func _create_environment() -> void:
+	var world_environment := WorldEnvironment.new()
+	world_environment.name = "WorldEnvironment"
+	var environment := Environment.new()
+	environment.background_mode = Environment.BG_COLOR
+	environment.background_color = Color("071018")
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color("b7c9d6")
+	environment.ambient_light_energy = 0.7
+	world_environment.environment = environment
+	add_child(world_environment)
+
+	var sun := DirectionalLight3D.new()
+	sun.name = "DebugSun"
+	sun.rotation_degrees = Vector3(-55.0, -35.0, 0.0)
+	sun.light_energy = 1.2
+	sun.shadow_enabled = true
+	add_child(sun)
+
+
+func _create_floor_grid() -> void:
+	var tile_grid: Dictionary = scene_data["tile_grid"]
+	assert(int(tile_grid["width"]) == Coordinates.FLOOR_GRID_WIDTH)
+	assert(int(tile_grid["height"]) == Coordinates.FLOOR_GRID_HEIGHT)
+	var layers: Array = tile_grid["layers"]
+	assert(not layers.is_empty())
+	var layer: Dictionary = layers[0]
+	var floor_ids: Array = layer["floor_ids"]
+	assert(floor_ids.size() == FLOOR_CELL_COUNT)
+
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+
+	var cell_mesh := BoxMesh.new()
+	cell_mesh.size = Vector3.ONE
+	cell_mesh.material = material
+
+	var multi_mesh := MultiMesh.new()
+	multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
+	multi_mesh.use_colors = true
+	multi_mesh.mesh = cell_mesh
+	multi_mesh.instance_count = FLOOR_CELL_COUNT
+
+	var column_axis := Vector3(1.5, 0.0, -Coordinates.SQRT_3_OVER_2) * 0.992
+	var row_axis := Vector3(1.0, 0.0, 2.0 * Coordinates.SQRT_3_OVER_2) * 0.992
+	var cell_basis := Basis(column_axis, Vector3(0.0, FLOOR_THICKNESS, 0.0), row_axis)
+
+	for tile_index in FLOOR_CELL_COUNT:
+		var column := Coordinates.FLOOR_GRID_WIDTH - 1 - (
+			tile_index % Coordinates.FLOOR_GRID_WIDTH
+		)
+		var row := int(tile_index / Coordinates.FLOOR_GRID_WIDTH)
+		var origin := Coordinates.square_grid_to_world(
+			column,
+			row,
+			int(layer["elevation"])
+		)
+		origin.y -= FLOOR_THICKNESS * 0.5
+		multi_mesh.set_instance_transform(tile_index, Transform3D(cell_basis, origin))
+		multi_mesh.set_instance_color(tile_index, _debug_floor_color(int(floor_ids[tile_index])))
+
+	floor_instances = MultiMeshInstance3D.new()
+	floor_instances.name = "FloorGrid100x100"
+	floor_instances.multimesh = multi_mesh
+	add_child(floor_instances)
+
+
+func _create_ground_collision() -> void:
+	var ground := StaticBody3D.new()
+	ground.name = "DebugGroundCollision"
+	var collision := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(600.0, 0.2, 600.0)
+	collision.shape = shape
+	collision.position.y = -0.1
+	ground.add_child(collision)
+	add_child(ground)
+
+
+func _debug_floor_color(floor_id: int) -> Color:
+	if floor_id == 0:
+		return Color("20282a")
+	var hue := fmod(0.24 + float(floor_id % 17) * 0.006, 1.0)
+	var value := 0.31 + float(floor_id % 5) * 0.025
+	return Color.from_hsv(hue, 0.18, value, 1.0)
+
+
+func _create_player() -> void:
+	player = PlayerController.new()
+	player.name = "AuthoritativePlayer"
+	add_child(player)
+	player.logical_state_changed.connect(_on_player_state_changed)
+	player.initialize(scene_data["map"]["name"], scene_data["spawn"])
+
+
+func _create_cameras() -> void:
+	iso_camera = Camera3D.new()
+	iso_camera.name = "IsoCamera"
+	iso_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	iso_camera.size = 26.0
+	iso_camera.near = 0.1
+	iso_camera.far = 500.0
+	add_child(iso_camera)
+
+	fpp_camera = Camera3D.new()
+	fpp_camera.name = "FppEyeCamera"
+	fpp_camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+	fpp_camera.fov = 75.0
+	fpp_camera.near = 0.05
+	fpp_camera.far = 500.0
+	add_child(fpp_camera)
+
+
+func _create_hud() -> void:
+	var canvas := CanvasLayer.new()
+	canvas.name = "DebugHud"
+	add_child(canvas)
+
+	var panel := ColorRect.new()
+	panel.position = Vector2(16.0, 16.0)
+	panel.size = Vector2(980.0, 100.0)
+	panel.color = Color(0.02, 0.03, 0.04, 0.82)
+	canvas.add_child(panel)
+
+	state_label = Label.new()
+	state_label.position = Vector2(28.0, 26.0)
+	state_label.add_theme_font_size_override("font_size", 18)
+	state_label.add_theme_color_override("font_color", Color("d8edf5"))
+	canvas.add_child(state_label)
+
+	crosshair = Label.new()
+	crosshair.text = "+"
+	crosshair.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	crosshair.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	crosshair.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	crosshair.position = Vector2(-12.0, -16.0)
+	crosshair.size = Vector2(24.0, 32.0)
+	crosshair.add_theme_font_size_override("font_size", 24)
+	crosshair.add_theme_color_override("font_color", Color("ffd447"))
+	canvas.add_child(crosshair)
+
+
+func _register_input_actions() -> void:
+	_register_key("toggle_camera", KEY_TAB)
+	_register_key("move_forward", KEY_W)
+	_register_key("move_backward", KEY_S)
+	_register_key("move_left", KEY_A)
+	_register_key("move_right", KEY_D)
+	_register_key("sprint", KEY_SHIFT)
+
+
+func _register_key(action: StringName, physical_keycode: Key) -> void:
+	if not InputMap.has_action(action):
+		InputMap.add_action(action)
+	var event := InputEventKey.new()
+	event.physical_keycode = physical_keycode
+	if not InputMap.action_has_event(action, event):
+		InputMap.action_add_event(action, event)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("toggle_camera"):
+		_toggle_camera()
+	elif event.is_action_pressed("ui_cancel") and active_camera_mode == CAMERA_FPP:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif event is InputEventMouseButton and event.pressed and active_camera_mode == CAMERA_FPP:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	elif (
+		event is InputEventMouseMotion
+		and active_camera_mode == CAMERA_FPP
+		and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	):
+		player.add_mouse_look(event.relative)
+		_update_cameras()
+		_update_hud()
+
+
+func _toggle_camera() -> void:
+	var state_before: Dictionary = player.get_state_snapshot()
+	_set_camera_mode(CAMERA_FPP if active_camera_mode == CAMERA_ISO else CAMERA_ISO)
+	assert(
+		player.get_state_snapshot() == state_before,
+		"Camera switching changed authoritative player state"
+	)
+
+
+func _set_camera_mode(mode: String) -> void:
+	active_camera_mode = mode
+	iso_camera.current = mode == CAMERA_ISO
+	fpp_camera.current = mode == CAMERA_FPP
+	player.set_first_person(mode == CAMERA_FPP)
+	crosshair.visible = mode == CAMERA_FPP
+	if DisplayServer.get_name() != "headless":
+		Input.mouse_mode = (
+			Input.MOUSE_MODE_CAPTURED if mode == CAMERA_FPP else Input.MOUSE_MODE_VISIBLE
+		)
+	_update_hud()
+
+
+func _update_cameras() -> void:
+	if player == null or iso_camera == null or fpp_camera == null:
+		return
+	var player_position: Vector3 = player.global_position
+	iso_camera.global_position = player_position + Vector3(14.0, 18.0, 14.0)
+	iso_camera.look_at(player_position, Vector3.UP)
+	fpp_camera.global_position = player.get_eye_position()
+	fpp_camera.global_rotation = Vector3(player.view_pitch, player.view_yaw, 0.0)
+
+
+func _on_player_state_changed(_state: Dictionary) -> void:
+	_update_hud()
+
+
+func _update_hud() -> void:
+	if state_label == null or player == null:
+		return
+	var state: Dictionary = player.logical_state
+	var horizontal_speed := Vector2(player.velocity.x, player.velocity.z).length()
+	state_label.text = (
+		"%s  |  %s  |  %d FPS  |  speed %.2f\n"
+		+ "hex %d  grid (%d, %d)  elevation %d  direction %d\n"
+		+ "Mouse: look   WASD: move/strafe   SHIFT: sprint   TAB: ISO/FPP   ESC: mouse"
+	) % [
+		state["map_name"],
+		active_camera_mode,
+		Engine.get_frames_per_second(),
+		horizontal_speed,
+		state["hex_index"],
+		state["hex_column"],
+		state["hex_row"],
+		state["elevation"],
+		state["rotation"],
+	]
+
+
+func _run_contract_checks() -> void:
+	assert(floor_instances.multimesh.instance_count == FLOOR_CELL_COUNT)
+	assert(Coordinates.tile_index_to_grid(18492) == Vector2i(107, 92))
+	assert(int(player.logical_state["hex_index"]) == 18492)
+
+	var spawn_world := Coordinates.hex_index_to_world(18492)
+	assert(player.global_position.distance_to(spawn_world) < 0.00001)
+
+	var round_trip_tiles := [18492, 0, 199, 39800, 39999]
+	for rotation in 6:
+		var neighbor := Coordinates.tile_in_direction(18492, rotation)
+		round_trip_tiles.append(neighbor)
+		var distance := spawn_world.distance_to(Coordinates.hex_index_to_world(neighbor))
+		assert(absf(distance - 1.0) < 0.00001, "Hex neighbor distance mismatch")
+
+	for tile in round_trip_tiles:
+		var world := Coordinates.hex_index_to_world(tile)
+		assert(
+			Coordinates.world_to_nearest_hex(world) == tile,
+			"hex -> world -> hex round trip failed for %d" % tile
+		)
+
+	var state_before: Dictionary = player.get_state_snapshot()
+	_set_camera_mode(CAMERA_FPP)
+	assert(player.get_state_snapshot() == state_before)
+	var expected_eye: Vector3 = player.global_position + Vector3.UP * player.eye_height
+	assert(fpp_camera.global_position.distance_to(expected_eye) < 0.00001)
+	assert(Vector2(fpp_camera.global_position.x, fpp_camera.global_position.z).distance_to(
+		Vector2(player.global_position.x, player.global_position.z)
+	) < 0.00001)
+	_set_camera_mode(CAMERA_ISO)
+	assert(player.get_state_snapshot() == state_before)
+
+	var cardinal_inputs := [
+		Vector2(0.0, -1.0),
+		Vector2(0.0, 1.0),
+		Vector2(-1.0, 0.0),
+		Vector2(1.0, 0.0),
+	]
+	for input_vector in cardinal_inputs:
+		var target_velocity: Vector3 = player.get_target_horizontal_velocity(input_vector, false)
+		assert(absf(target_velocity.length() - player.walk_speed) < 0.00001)
+
+	var diagonal_velocity: Vector3 = player.get_target_horizontal_velocity(
+		Vector2(1.0, -1.0),
+		false
+	)
+	assert(absf(diagonal_velocity.length() - player.walk_speed) < 0.00001)
+
+	var yaw_before: float = player.view_yaw
+	var strafe_velocity: Vector3 = player.get_target_horizontal_velocity(
+		Vector2(1.0, 0.0),
+		false
+	)
+	assert(absf(player.view_yaw - yaw_before) < 0.00001)
+	assert(absf(strafe_velocity.length() - player.walk_speed) < 0.00001)
+
+	_set_camera_mode(CAMERA_ISO)
+	var iso_velocity: Vector3 = player.get_target_horizontal_velocity(Vector2(0.0, -1.0), false)
+	var iso_target_hex := Coordinates.world_to_nearest_hex(
+		spawn_world + iso_velocity * 0.5
+	)
+	_set_camera_mode(CAMERA_FPP)
+	var fpp_velocity: Vector3 = player.get_target_horizontal_velocity(Vector2(0.0, -1.0), false)
+	var fpp_target_hex := Coordinates.world_to_nearest_hex(
+		spawn_world + fpp_velocity * 0.5
+	)
+	assert(iso_velocity.distance_to(fpp_velocity) < 0.00001)
+	assert(iso_target_hex == fpp_target_hex)
+	assert(player.get_state_snapshot() == state_before)
+
+	_set_camera_mode(CAMERA_ISO)
+
+
+func _requested_start_camera() -> String:
+	for argument in OS.get_cmdline_user_args():
+		if argument.to_lower() == "--camera=iso":
+			return CAMERA_ISO
+	return CAMERA_FPP
+
+
+func _has_user_argument(expected: String) -> bool:
+	for argument in OS.get_cmdline_user_args():
+		if argument.to_lower() == expected:
+			return true
+	return false
+
+
+func _run_runtime_movement_probe() -> void:
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var start_position: Vector3 = player.global_position
+	var start_yaw: float = player.view_yaw
+	var start_hex: int = int(player.logical_state["hex_index"])
+	var right_axis := Coordinates.right_from_yaw(start_yaw)
+	var forward_axis := Coordinates.forward_from_yaw(start_yaw)
+
+	Input.action_press("move_right")
+	for _frame in 30:
+		await get_tree().physics_frame
+	Input.action_release("move_right")
+
+	var displacement: Vector3 = player.global_position - start_position
+	var lateral_distance := displacement.dot(right_axis)
+	var forward_drift := absf(displacement.dot(forward_axis))
+	assert(lateral_distance > 0.5, "D did not move the CharacterBody to the right")
+	assert(forward_drift < 0.05, "Strafe introduced forward drift")
+	assert(absf(player.view_yaw - start_yaw) < 0.00001, "Strafe rotated the view")
+
+	var evidence := {
+		"schema": "fo2remix.godot-movement-runtime-v1",
+		"input": "D",
+		"physics_frames": 30,
+		"start_hex": start_hex,
+		"end_hex": int(player.logical_state["hex_index"]),
+		"displacement": _vector_to_array(displacement),
+		"lateral_distance": lateral_distance,
+		"forward_drift": forward_drift,
+		"yaw_unchanged": true,
+		"passed": true,
+	}
+	var path := ProjectSettings.globalize_path(MOVEMENT_RUNTIME_EVIDENCE_PATH)
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	assert(file != null, "Could not write runtime movement evidence")
+	file.store_string(JSON.stringify(evidence, "  "))
+	print("FO2REMIX_MOVEMENT_RUNTIME %s" % JSON.stringify(evidence))
+	get_tree().quit(0)
+
+
+func _write_evidence() -> void:
+	var state: Dictionary = player.logical_state
+	var round_trip_count := 11
+	var evidence := {
+		"schema": "fo2remix.godot-movement-contract-v2",
+		"fallout2_ce_commit": FALLOUT2_CE_COMMIT,
+		"scene_schema": scene_data["schema"],
+		"map": state["map_name"],
+		"floor_instances": floor_instances.multimesh.instance_count,
+		"player_state": state,
+		"player_world": _vector_to_array(player.global_position),
+		"fpp_camera_origin": _vector_to_array(fpp_camera.global_position),
+		"eye_height": player.eye_height,
+		"fpp_third_person_offset": 0.0,
+		"controller": "CharacterBody3D",
+		"starts_in_fpp": true,
+		"camera_round_trip_preserved_state": true,
+		"movement_same_target_in_iso_and_fpp": true,
+		"world_to_hex_round_trip_records": round_trip_count,
+		"wasd": {
+			"forward": "W",
+			"backward": "S",
+			"strafe_left": "A",
+			"strafe_right": "D",
+			"sprint": "Shift",
+			"diagonal_speed_normalized": true,
+		},
+		"movement": {
+			"walk_speed": player.walk_speed,
+			"sprint_speed": player.sprint_speed,
+			"acceleration": player.acceleration,
+			"deceleration": player.deceleration,
+		},
+		"coordinate_system": {
+			"units": "one world unit per adjacent logical hex",
+			"up_axis": "+Y",
+			"ground_axes": "X/Z",
+			"hex_grid": "200x200 reversed-column Fallout index",
+			"floor_grid": "100x100 reversed-column square tiles",
+		},
+	}
+	var path := ProjectSettings.globalize_path(EVIDENCE_PATH)
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		push_error("Could not write evidence: %s" % path)
+		return
+	file.store_string(JSON.stringify(evidence, "  "))
+	print("FO2REMIX_MOVEMENT_CONTRACT %s" % JSON.stringify(evidence))
+
+
+func _vector_to_array(vector: Vector3) -> Array[float]:
+	return [vector.x, vector.y, vector.z]

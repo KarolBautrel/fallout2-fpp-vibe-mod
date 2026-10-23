@@ -1,56 +1,90 @@
 # Środowisko
 
-## Wykryte
+Stan potwierdzony 23 października 2026.
+
+## Wykryte narzędzia
 
 - Git `2.55.0.windows.2`;
-- Node.js i npm;
-- Python `3.14.3` dostępny przez launcher `py`;
-- działające projektowe `.venv` korzystające z systemowych pakietów bazowych;
-- przenośny Godot `4.7 stable` w `Desktop\Gierka\installers`;
-- Fallout 2 Steam w oczekiwanej lokalizacji.
+- Python `3.14.3` przez launcher `py` oraz działające projektowe `.venv`;
+- CMake `4.5.0-rc1`;
+- Visual Studio Build Tools 2022 `17.14.42`;
+- MSVC x64 `14.44.35207`;
+- Windows SDK `10.0.26100.0`;
+- Godot `4.7.stable` w `Desktop\Gierka\installers`;
+- Fallout 2 Steam w `C:\Program Files (x86)\Steam\steamapps\common\Fallout 2`.
 
-## Brakujące
+`scripts/check-prereqs.ps1` wykrywa MSVC także ze zwykłego PowerShella przez
+`vswhere`; nie trzeba uruchamiać Developer PowerShell.
 
-- CMake;
-- Visual Studio Build Tools z workloadem Desktop development with C++;
-- źródła `fallout2-ce` — terminal w tej sesji ma zablokowane połączenia pobierające.
+## Bazowy build fallout2-ce
 
-Próba globalnej instalacji przez `winget` została wykonana. Python został
-rozpoznany, natomiast instalacja CMake zatrzymała się na błędzie `0x8A150001`
-środowiska App Installer. Ten sam skrypt powinien zadziałać w zwykłym terminalu
-Windows z dostępem do źródeł `winget`.
+Źródła są lokalnie w ignorowanym `engine/fallout2-ce`. Checkout jest przypięty
+w trybie detached do commita:
 
-## Docelowe wersje
-
-- Python: obecne 3.14.3 spełnia wymaganie projektu `>=3.13`;
-- CMake: bieżące stabilne 4.x;
-- MSVC: aktualny toolset x64 z Visual Studio Build Tools 2026;
-- Godot: istniejące 4.7 stable, wersja standardowa bez .NET;
-- `fallout2-ce`: przypięty commit zapisany po pierwszym udanym klonowaniu.
-
-## Instalacja w zwykłym terminalu użytkownika
-
-Uruchom PowerShell i wykonaj:
-
-```powershell
-.\scripts\install-global-tools.ps1
+```text
+e97087b9582f37075db347a89898887320753f8b
+v1.3.0-59-ge97087b
 ```
 
-Po ponownym otwarciu terminala:
+Konfiguracja dla Visual Studio 2022 x64:
 
 ```powershell
-.\scripts\bootstrap.ps1 -Python py -InstallDependencies
+cmake -S engine\fallout2-ce `
+  -B engine\fallout2-ce\out\build\windows-x64-vs2022 `
+  -G "Visual Studio 17 2022" -A x64 `
+  "-DCMAKE_POLICY_VERSION_MINIMUM:STRING=3.5"
 ```
 
-Opcjonalny, szerszy pakiet Universal Modder można dodać osobno:
+Flaga zgodności jest wymagana przez CMake 4.5 dla vendored SDL2 2.26.1. Nie
+wymaga modyfikowania źródeł upstreamu.
+
+Build:
 
 ```powershell
-.\scripts\install-optional-universal-modder.ps1
+cmake --build engine\fallout2-ce\out\build\windows-x64-vs2022 `
+  --config Release --verbose
 ```
 
-Projektowy skill w `.codex/skills/fallout2-fpp-vibe-mod` nie wymaga globalnej instalacji i pozostaje wersjonowany razem z projektem.
+Wynik: `fallout2-ce.exe`, 0 błędów i 256 ostrzeżeń upstreamu/MSVC. SHA-256:
 
-## Dlaczego nie instalujemy teraz Ghidry i Blendera
+```text
+7C7FA0F790A4D9E394B5F49FD7BED9B59A4141D7E5B2AE22D6EF00AD118E92ED
+```
 
-Kod silnika jest dostępny, więc Ghidra nie jest potrzebna do pierwszej fazy. Blender stanie się potrzebny dopiero wtedy, gdy placeholdery zostaną zastąpione prawdziwą geometrią lub assetami.
+Pierwsza próba z `--parallel` zakończyła się kodem 1 przy generowaniu
+nagłówków SDL. Powtórzenie sekwencyjne zakończyło się powodzeniem.
+
+## Uruchomienie referencyjne
+
+Niezmienione `fallout2-ce` uruchomiono z katalogiem roboczym ustawionym na
+instalację Steam. Po 15 sekundach proces odpowiadał i miał okno `FALLOUT II`.
+Instalacja Steam pozostaje źródłem tylko do odczytu; binarka i generowane pliki
+są w ignorowanym checkoutcie `engine/fallout2-ce`.
+
+## Prototyp Godot
+
+Projekt znajduje się w `godot/` i działa na Godot 4.7. Wczytuje ignorowany
+`artifacts/artemple.scene-v1.json`, generuje 10 000 komórek debugowej podłogi
+oraz wspólny stan gracza z kamerami ISO i FPP.
+
+Walidacja headless:
+
+```powershell
+& "$env:USERPROFILE\Desktop\Gierka\installers\Godot_v4.7-stable_win64.exe\Godot_v4.7-stable_win64_console.exe" `
+  --headless --path godot --quit-after 2
+```
+
+W sandboxie warto przekierować `APPDATA` procesu do `artifacts/godot-user`,
+ponieważ Godot próbuje tworzyć `user://logs`.
+
+## Kontrola projektu
+
+```powershell
+.\scripts\check-prereqs.ps1 -GodotPath `
+  "$env:USERPROFILE\Desktop\Gierka\installers\Godot_v4.7-stable_win64.exe\Godot_v4.7-stable_win64_console.exe"
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m ruff check .
+```
+
+Aktualny wynik: komplet prerekwizytów, 16 testów zaliczonych i Ruff bez błędów.
 

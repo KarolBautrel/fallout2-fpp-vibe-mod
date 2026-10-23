@@ -1,0 +1,80 @@
+extends "res://addons/classic_fpp_controller/first_person_controller.gd"
+
+signal logical_state_changed(state: Dictionary)
+
+const Coordinates = preload("res://scripts/fallout_coordinate_space.gd")
+
+var logical_state := {
+	"map_name": "",
+	"hex_index": -1,
+	"hex_column": -1,
+	"hex_row": -1,
+	"elevation": 0,
+	"rotation": 0,
+	"selection": -1,
+}
+
+var initialized := false
+
+
+func initialize(map_name: String, spawn: Dictionary) -> void:
+	logical_state["map_name"] = map_name
+	logical_state["hex_index"] = int(spawn["hex_index"])
+	logical_state["hex_column"] = int(spawn["hex_column"])
+	logical_state["hex_row"] = int(spawn["hex_row"])
+	logical_state["elevation"] = int(spawn["elevation"])
+	logical_state["rotation"] = int(spawn["rotation"]) % 6
+	global_position = Coordinates.hex_index_to_world(
+		int(logical_state["hex_index"]),
+		int(logical_state["elevation"])
+	)
+	set_view_from_rotation(int(logical_state["rotation"]))
+	velocity = Vector3.ZERO
+	initialized = true
+	_emit_logical_state()
+
+
+func set_view_from_rotation(rotation_index: int) -> void:
+	logical_state["rotation"] = posmod(rotation_index, 6)
+	var direction := Coordinates.direction_to_world(
+		int(logical_state["hex_index"]),
+		int(logical_state["rotation"])
+	)
+	set_view_angles(atan2(-direction.x, -direction.z), 0.0)
+
+
+func get_state_snapshot() -> Dictionary:
+	var snapshot := get_motion_snapshot()
+	snapshot["logical"] = logical_state.duplicate(true)
+	return snapshot
+
+
+func _after_motion_step() -> void:
+	if initialized:
+		_sync_logical_hex()
+
+
+func _after_view_changed() -> void:
+	if not initialized:
+		return
+	logical_state["rotation"] = Coordinates.rotation_for_yaw(
+		int(logical_state["hex_index"]),
+		view_yaw
+	)
+	_emit_logical_state()
+
+
+func _sync_logical_hex() -> void:
+	var resolved_hex := Coordinates.world_to_nearest_hex(global_position)
+	if resolved_hex == -1 or resolved_hex == int(logical_state["hex_index"]):
+		return
+	logical_state["hex_index"] = resolved_hex
+	var grid := Coordinates.tile_index_to_grid(resolved_hex)
+	logical_state["hex_column"] = grid.x
+	logical_state["hex_row"] = grid.y
+	logical_state["rotation"] = Coordinates.rotation_for_yaw(resolved_hex, view_yaw)
+	_emit_logical_state()
+
+
+func _emit_logical_state() -> void:
+	logical_state_changed.emit(logical_state.duplicate(true))

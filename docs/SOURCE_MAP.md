@@ -80,6 +80,11 @@ otwarcia jest dodatkowo zapisany w bicie `0x01` danych instancji drzwi.
 - poziom zawiera 10 000 wartości podłoga/dach, zgodnie z siatką `100 × 100`.
 - pełny odczyt `ARTEMPLE.MAP` daje 567 obiektów: 45 ścian, 397 rekordów
   scenerii i 419 blokowanych heksów;
+- pole MAP `object_id` nie jest unikalnym identyfikatorem instancji: w
+  `ARTEMPLE.MAP` 55 wartości powtarza się w 116 eksportowanych rekordach, a
+  przykładowe ID `16` występuje na heksach `11684` i `14276`; eksporter nadaje
+  więc stabilne `instance_id` według pozycji w strumieniu obiektów i zachowuje
+  oryginalne `object_id` wyłącznie jako dane źródłowe;
 - `ARTEMPLE.MAP` nie zawiera drzwi;
 - kontrolny odczyt `KLAMALL.MAP` daje 24 drzwi; co najmniej rekordy ID `146`
   na heksie `12675` i ID `57` na heksie `12692` zostały rozpoznane przez
@@ -87,10 +92,11 @@ otwarcia jest dodatkowo zapisany w bicie `0x01` danych instancji drzwi.
 - oba pliki zostały odczytane do końca wraz ze skryptami, obiektami zależnymi
   od prototypów i rekurencyjnymi ekwipunkami.
 
-## Najbliższy krok
+## Interakcja pionowego wycinka
 
-Wybrać jeden blokujący obiekt scenerii w `ARTEMPLE.MAP` i dodać wspólną
-interakcję ISO/FPP. Jeśli pierwsza interakcja ma być koniecznie drzwiami,
-trzeba jawnie zmienić mapę pionowego wycinka, ponieważ `ARTEMPLE.MAP` nie ma
-żadnego rekordu drzwi.
+Blokująca sceneria o `instance_id = 0`, źródłowym `object_id = 16` i heksie
+`11684` jest celem deterministycznego testu interakcji. Promień ze środka
+kamery FPP i promień kliknięcia kamery ISO wybierają tę samą instancję, a obie
+ścieżki ustawiają ten sam współdzielony stan `activated = true` z odległości
+jednego heksa. Drzwi nadal wymagają jawnej zmiany mapy pionowego wycinka.
 

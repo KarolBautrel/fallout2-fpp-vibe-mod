@@ -47,6 +47,14 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
 - `scene-v1` rozszerzone o ściany, scenerię, drzwi, flagi i blokowane heksy;
 - debugowa geometria Godot oraz 419 colliderów dla blokad `ARTEMPLE.MAP`;
 - runtime probe potwierdzający, że ściana ID `164` blokuje heks `15284`.
+- eksport nadaje każdemu rekordowi stabilne `instance_id`, ponieważ prawdziwe
+  `object_id` MAP nie jest unikalne (55 powtarzających się wartości w 116
+  rekordach `ARTEMPLE.MAP`);
+- wspólna interakcja ISO/FPP z blokującą scenerią: celowanie środkiem kamery w
+  FPP, wybór kliknięciem w ISO, klawisz `E`, wspólny stan `activated` i
+  zachowanie wyboru podczas przełączania kamery;
+- runtime probe potwierdzający ten sam `instance_id = 0`, źródłowe
+  `object_id = 16` i identyczny wynik w ISO oraz FPP.
 
 Na prawdziwym `master.dat` znaleziono 23 140 wpisów i 155 map. Dla
 `ARTEMPLE.MAP` eksport zawiera spawn na heksie `18492`, kolumnę `107`,
@@ -79,6 +87,10 @@ modyfikowane.
 
 Projekt: `godot/project.godot`.
 
+Zasada pracy: przed uruchomieniem wersji po każdej aktualizacji zamknąć
+wszystkie starsze okna tego projektu i pozostawić dokładnie jedno świeże okno
+Godota, żeby użytkownik nie testował nieaktualnego procesu.
+
 Sterowanie:
 
 - `Tab`: ISO/FPP;
@@ -86,6 +98,9 @@ Sterowanie:
 - `W` / `S`: przód/tył;
 - `A` / `D`: strafe lewo/prawo;
 - `Shift`: sprint.
+- `E`: interakcja;
+- w ISO: lewy przycisk myszy wybiera blokującą scenerię;
+- w FPP: cel interakcji wskazuje środek ekranu.
 
 Transformacja współrzędnych jest opisana w `docs/COORDINATES.md`. Stan
 logiczny zachowuje indeks heksa; kamery tylko go obserwują.
@@ -98,6 +113,7 @@ logiczny zachowuje indeks heksa; kamery tylko go obserwują.
 - `godot-movement-runtime.json` — rzeczywisty test strafe `D` przez 30
   klatek fizyki;
 - `godot-blocking-runtime.json` — rzeczywisty test kolizji ze ścianą;
+- `godot-interaction-runtime.json` — ten sam cel i wynik interakcji w ISO/FPP;
 - `artemple.scene-v1.objects.json` i `klamall.scene-v1.objects.json` —
   dowody pełnego odczytu obiektów z danych użytkownika;
 - `godot-preview00000002.png` — widok ISO;
@@ -109,7 +125,7 @@ Gitem. Instalacja Steam jest traktowana wyłącznie jako źródło do odczytu.
 
 ## Następny konkretny etap
 
-Dodać jedną wspólną interakcję ISO/FPP z blokującym obiektem scenerii na
-`ARTEMPLE.MAP`, zachowując ten sam `object_id`, stan i wynik w obu kamerach.
-Drzwi wymagają późniejszej jawnej zmiany mapy pionowego wycinka, ponieważ
-`ARTEMPLE.MAP` nie zawiera rekordów drzwi.
+Zamknąć pionowy wycinek testem ręcznym interakcji w widocznym oknie, a potem
+podjąć decyzję integracyjną: stanowy bridge do `fallout2-ce` albo prototyp
+natywnego renderera. Jeśli następną interakcją mają być drzwi, trzeba jawnie
+zmienić mapę testową, ponieważ `ARTEMPLE.MAP` nie zawiera rekordów drzwi.

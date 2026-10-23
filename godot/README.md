@@ -28,6 +28,9 @@ Controls:
 - `W` / `S`: move forward/backward;
 - `A` / `D`: strafe left/right;
 - `Shift`: sprint.
+- `E`: interact with the targeted/selected object;
+- in FPP, aim the center crosshair at nearby blocking scenery;
+- in ISO, left-click blocking scenery to select it, approach it, then press `E`.
 
 Both cameras observe the same `CharacterBody3D`. The FPP camera origin is exactly
 the player position plus the explicit `1.68` world-unit eye height and has no
@@ -39,3 +42,15 @@ submodule in `addons/classic_fpp_controller`. The project-specific
 `scripts/fallout_player_controller.gd` adapter adds logical hex state.
 The pinned `v0.2.0` package also provides configurable floor snapping,
 walkable slopes and automatic step-up for low stairs.
+
+Both camera paths resolve to the same exported `instance_id` and mutate one
+shared object-state dictionary. Activated debug objects turn yellow; an ISO
+selection turns cyan. The export retains Fallout's original `object_id`, but
+does not use it as a unique key because real `ARTEMPLE.MAP` records repeat it.
+
+Run the deterministic interaction parity probe with:
+
+```powershell
+& "$env:USERPROFILE\Desktop\Gierka\installers\Godot_v4.7-stable_win64.exe\Godot_v4.7-stable_win64_console.exe" `
+  --headless --path godot -- --interaction-probe
+```

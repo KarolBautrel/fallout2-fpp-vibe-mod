@@ -46,16 +46,17 @@ Pierwszy pionowy wycinek powstanie jako parser/eksporter plus niezależny render
 
 ### M3 — kamery i sterowanie
 
-- kamera izometryczna;
-- kamera FPP na wysokości oczu postaci, bez kamery za plecami;
-- wspólny stan pozycji i zaznaczenia;
-- przełączanie bez teleportacji i zmiany aktywnego heksa.
+- [x] kamera izometryczna;
+- [x] kamera FPP na wysokości oczu postaci, bez kamery za plecami;
+- [x] wspólny stan pozycji i zaznaczenia;
+- [x] przełączanie bez teleportacji i zmiany aktywnego heksa.
 
 ### M4 — interakcja
 
-- jedno działające drzwi lub obiekt;
-- ten sam rezultat w ISO i FPP;
-- zapis logu wejścia, pozycji i wyniku.
+- [x] jeden działający obiekt blokującej scenerii;
+- [x] ten sam `instance_id` i rezultat w ISO i FPP;
+- [x] zapis ID, heksu, pozycji, dystansu i wyniku w
+  `artifacts/godot-interaction-runtime.json`.
 
 ## Kryterium decyzji
 

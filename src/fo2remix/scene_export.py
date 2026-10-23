@@ -31,12 +31,13 @@ def export_scene_v1(
     spawn_column, spawn_row = tile_index_to_grid(core.header.entering_tile)
     assert grid_to_tile_index(spawn_column, spawn_row) == core.header.entering_tile
 
+    indexed_objects = list(enumerate(map_file.objects))
     exported_objects = [
-        _export_object(obj)
-        for obj in map_file.objects
+        _export_object(obj, instance_id=instance_id)
+        for instance_id, obj in indexed_objects
         if obj.fid_type in {OBJECT_TYPE_SCENERY, OBJECT_TYPE_WALL}
     ]
-    blocking_hexes = _export_blocking_hexes(map_file.objects)
+    blocking_hexes = _export_blocking_hexes(indexed_objects)
 
     return {
         "schema": "fo2remix.scene-v1",
@@ -82,11 +83,12 @@ def export_scene_v1(
     }
 
 
-def _export_object(obj: MapObject) -> dict[str, Any]:
+def _export_object(obj: MapObject, *, instance_id: int) -> dict[str, Any]:
     column, row = tile_index_to_grid(obj.tile)
     world = hex_index_to_world(obj.tile, obj.elevation)
     kind = "wall" if obj.fid_type == OBJECT_TYPE_WALL else "door" if obj.is_door else "scenery"
     record: dict[str, Any] = {
+        "instance_id": instance_id,
         "object_id": obj.object_id,
         "kind": kind,
         "pid": obj.pid,
@@ -120,19 +122,26 @@ def _export_object(obj: MapObject) -> dict[str, Any]:
     return record
 
 
-def _export_blocking_hexes(objects: tuple[MapObject, ...]) -> list[dict[str, Any]]:
-    blocked: dict[tuple[int, int], set[int]] = {}
-    for obj in objects:
+def _export_blocking_hexes(
+    objects: list[tuple[int, MapObject]],
+) -> list[dict[str, Any]]:
+    blocked: dict[tuple[int, int], dict[str, set[int]]] = {}
+    for instance_id, obj in objects:
         if not obj.blocks_movement:
             continue
         tiles = {obj.tile}
         if obj.multihex:
             tiles.update(tile_in_direction(obj.tile, rotation) for rotation in range(6))
         for tile in tiles:
-            blocked.setdefault((obj.elevation, tile), set()).add(obj.object_id)
+            identities = blocked.setdefault(
+                (obj.elevation, tile),
+                {"instance_ids": set(), "object_ids": set()},
+            )
+            identities["instance_ids"].add(instance_id)
+            identities["object_ids"].add(obj.object_id)
 
     records: list[dict[str, Any]] = []
-    for (elevation, tile), object_ids in sorted(blocked.items()):
+    for (elevation, tile), identities in sorted(blocked.items()):
         column, row = tile_index_to_grid(tile)
         records.append(
             {
@@ -140,7 +149,8 @@ def _export_blocking_hexes(objects: tuple[MapObject, ...]) -> list[dict[str, Any
                 "hex_column": column,
                 "hex_row": row,
                 "elevation": elevation,
-                "object_ids": sorted(object_ids),
+                "instance_ids": sorted(identities["instance_ids"]),
+                "object_ids": sorted(identities["object_ids"]),
             }
         )
     return records

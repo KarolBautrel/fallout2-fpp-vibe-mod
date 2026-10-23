@@ -95,7 +95,7 @@ def test_exports_one_present_tile_layer() -> None:
         (
             _object(101, 18_490, 0x03000001, OBJECT_MULTIHEX, wall_pid),
             _object(201, 18_493, 0x02000001, 0, closed_door_pid, 0),
-            _object(202, 18_494, 0x02000002, OBJECT_OPEN_DOOR, open_door_pid, 1),
+            _object(201, 18_494, 0x02000002, OBJECT_OPEN_DOOR, open_door_pid, 1),
         )
     )
     object_section = pack(">2i", 3, 3) + object_records + pack(">2i", 0, 0)
@@ -118,4 +118,13 @@ def test_exports_one_present_tile_layer() -> None:
     assert scene["objects"]["records"][1]["door"]["open"] is False
     assert scene["objects"]["records"][2]["door"]["open"] is True
     assert scene["objects"]["records"][0]["flags"]["multihex"] is True
+    assert [record["instance_id"] for record in scene["objects"]["records"]] == [0, 1, 2]
+    assert scene["objects"]["records"][1]["object_id"] == 201
+    assert scene["objects"]["records"][2]["object_id"] == 201
+    blocked_instances = {
+        instance_id
+        for record in scene["collision"]["blocking_hexes"]
+        for instance_id in record["instance_ids"]
+    }
+    assert blocked_instances == {0, 1}
     assert len(scene["collision"]["blocking_hexes"]) == 8

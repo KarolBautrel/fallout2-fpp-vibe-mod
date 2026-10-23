@@ -7,12 +7,15 @@ const SCENE_PATH := "res://../artifacts/artemple.scene-v1.json"
 const EVIDENCE_PATH := "res://../artifacts/godot-iso-fpp-contract.json"
 const MOVEMENT_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-movement-runtime.json"
 const BLOCKING_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-blocking-runtime.json"
+const INTERACTION_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-interaction-runtime.json"
 const FALLOUT2_CE_COMMIT := "e97087b9582f37075db347a89898887320753f8b"
 
 const FLOOR_CELL_COUNT := 100 * 100
 const FLOOR_THICKNESS := 0.08
 const BLOCKING_COLLIDER_HEIGHT := 2.4
 const BLOCKING_COLLIDER_RADIUS := 0.42
+const INTERACTION_DISTANCE := 1.75
+const INTERACTION_RAY_DISTANCE := 2.25
 const CAMERA_ISO := "ISO"
 const CAMERA_FPP := "FPP"
 
@@ -21,6 +24,11 @@ var active_camera_mode := CAMERA_FPP
 var floor_instances: MultiMeshInstance3D
 var debug_object_counts := {"wall": 0, "door": 0, "scenery": 0}
 var blocking_collision_count := 0
+var object_records_by_instance_id := {}
+var object_states := {}
+var object_visuals := {}
+var object_instance_colors := {}
+var interaction_status := "No object selected"
 var player
 var iso_camera: Camera3D
 var fpp_camera: Camera3D
@@ -47,7 +55,9 @@ func _ready() -> void:
 	_run_contract_checks()
 	_set_camera_mode(_requested_start_camera())
 	_write_evidence()
-	if _has_user_argument("--blocking-probe"):
+	if _has_user_argument("--interaction-probe"):
+		_run_interaction_probe()
+	elif _has_user_argument("--blocking-probe"):
 		_run_blocking_collision_probe()
 	elif _has_user_argument("--movement-probe"):
 		_run_runtime_movement_probe()
@@ -167,6 +177,10 @@ func _create_map_object_debug_geometry() -> void:
 	var scenery: Array[Dictionary] = []
 	for value in records:
 		var record: Dictionary = value
+		var instance_id := int(record["instance_id"])
+		object_records_by_instance_id[instance_id] = record
+		if _is_interactable_record(record):
+			object_states[instance_id] = {"activated": false}
 		match String(record.get("kind", "")):
 			"wall":
 				walls.append(record)
@@ -209,6 +223,7 @@ func _create_object_instances(
 	multi_mesh.instance_count = records.size()
 	for index in records.size():
 		var record := records[index]
+		var instance_id := int(record["instance_id"])
 		var tile := int(record["hex_index"])
 		var elevation := int(record["elevation"])
 		var rotation := int(record["rotation"])
@@ -219,6 +234,8 @@ func _create_object_instances(
 		position.y += size.y * 0.5
 		multi_mesh.set_instance_transform(index, Transform3D(basis, position))
 		multi_mesh.set_instance_color(index, color)
+		object_visuals[instance_id] = {"multi_mesh": multi_mesh, "index": index}
+		object_instance_colors[instance_id] = color
 
 	var instances := MultiMeshInstance3D.new()
 	instances.name = node_name
@@ -243,7 +260,10 @@ func _create_map_blocking_collisions() -> void:
 			int(record["elevation"])
 		)
 		collision.position.y += BLOCKING_COLLIDER_HEIGHT * 0.5
+		collision.set_meta("instance_ids", record.get("instance_ids", []))
 		collision.set_meta("object_ids", record.get("object_ids", []))
+		collision.set_meta("hex_index", int(record["hex_index"]))
+		collision.set_meta("elevation", int(record["elevation"]))
 		body.add_child(collision)
 	add_child(body)
 	blocking_collision_count = records.size()
@@ -290,7 +310,7 @@ func _create_hud() -> void:
 
 	var panel := ColorRect.new()
 	panel.position = Vector2(16.0, 16.0)
-	panel.size = Vector2(980.0, 124.0)
+	panel.size = Vector2(1100.0, 160.0)
 	panel.color = Color(0.02, 0.03, 0.04, 0.82)
 	canvas.add_child(panel)
 
@@ -319,6 +339,7 @@ func _register_input_actions() -> void:
 	_register_key("move_left", KEY_A)
 	_register_key("move_right", KEY_D)
 	_register_key("sprint", KEY_SHIFT)
+	_register_key("interact", KEY_E)
 
 
 func _register_key(action: StringName, physical_keycode: Key) -> void:
@@ -333,8 +354,17 @@ func _register_key(action: StringName, physical_keycode: Key) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_camera"):
 		_toggle_camera()
+	elif event.is_action_pressed("interact"):
+		_interact_from_active_camera()
 	elif event.is_action_pressed("ui_cancel") and active_camera_mode == CAMERA_FPP:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif (
+		event is InputEventMouseButton
+		and event.button_index == MOUSE_BUTTON_LEFT
+		and event.pressed
+		and active_camera_mode == CAMERA_ISO
+	):
+		_select_iso_target(event.position)
 	elif event is InputEventMouseButton and event.pressed and active_camera_mode == CAMERA_FPP:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif (
@@ -383,6 +413,134 @@ func _on_player_state_changed(_state: Dictionary) -> void:
 	_update_hud()
 
 
+func _interact_from_active_camera() -> void:
+	var instance_id := -1
+	if active_camera_mode == CAMERA_FPP:
+		instance_id = _resolve_fpp_target()
+	else:
+		instance_id = int(player.logical_state["selection"])
+	if instance_id == -1:
+		interaction_status = "No interactable object in range"
+		_update_hud()
+		return
+	_interact_with_object(instance_id)
+
+
+func _select_iso_target(screen_position: Vector2) -> void:
+	var instance_id := _resolve_target_from_camera_screen(iso_camera, screen_position, 500.0)
+	player.set_selection(instance_id)
+	if instance_id == -1:
+		interaction_status = "No object selected"
+	else:
+		interaction_status = "Selected instance %d; press E nearby" % instance_id
+	_refresh_object_colors()
+	_update_hud()
+
+
+func _resolve_fpp_target() -> int:
+	var center := get_viewport().get_visible_rect().size * 0.5
+	return _resolve_target_from_camera_screen(
+		fpp_camera,
+		center,
+		INTERACTION_RAY_DISTANCE
+	)
+
+
+func _resolve_target_from_camera_screen(
+	camera: Camera3D,
+	screen_position: Vector2,
+	max_distance: float
+) -> int:
+	var origin := camera.project_ray_origin(screen_position)
+	var direction := camera.project_ray_normal(screen_position).normalized()
+	var query := PhysicsRayQueryParameters3D.create(
+		origin,
+		origin + direction * max_distance
+	)
+	query.exclude = [player.get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if _has_user_argument("--interaction-probe"):
+		print("FO2REMIX_INTERACTION_RAY origin=%s direction=%s hit=%s" % [
+			origin,
+			direction,
+			hit,
+		])
+	if hit.is_empty():
+		return -1
+	var collider: CollisionObject3D = hit.get("collider")
+	if collider == null:
+		return -1
+	var shape_index := int(hit.get("shape", -1))
+	if shape_index < 0:
+		return -1
+	var owner_id := collider.shape_find_owner(shape_index)
+	var owner := collider.shape_owner_get_owner(owner_id)
+	if owner == null or not owner.has_meta("instance_ids"):
+		return -1
+	return _first_interactable_instance_id(owner.get_meta("instance_ids"))
+
+
+func _first_interactable_instance_id(instance_ids: Variant) -> int:
+	if not instance_ids is Array:
+		return -1
+	for value in instance_ids:
+		var instance_id := int(value)
+		if object_states.has(instance_id):
+			return instance_id
+	return -1
+
+
+func _is_interactable_record(record: Dictionary) -> bool:
+	return String(record.get("kind", "")) in ["door", "scenery"]
+
+
+func _interact_with_object(instance_id: int) -> bool:
+	if not object_states.has(instance_id) or not object_records_by_instance_id.has(instance_id):
+		interaction_status = "Instance %d is not interactable" % instance_id
+		return false
+	var record: Dictionary = object_records_by_instance_id[instance_id]
+	if int(record["elevation"]) != int(player.logical_state["elevation"]):
+		interaction_status = "Instance %d is on another elevation" % instance_id
+		return false
+	var object_world := Coordinates.hex_index_to_world(
+		int(record["hex_index"]),
+		int(record["elevation"])
+	)
+	var horizontal_distance := Vector2(
+		object_world.x - player.global_position.x,
+		object_world.z - player.global_position.z
+	).length()
+	if horizontal_distance > INTERACTION_DISTANCE:
+		interaction_status = "Instance %d is too far away (%.2f)" % [
+			instance_id,
+			horizontal_distance,
+		]
+		return false
+	object_states[instance_id]["activated"] = true
+	player.set_selection(instance_id)
+	interaction_status = "Activated instance %d / Fallout object %d from %s" % [
+		instance_id,
+		int(record["object_id"]),
+		active_camera_mode,
+	]
+	_refresh_object_colors()
+	_update_hud()
+	return true
+
+
+func _refresh_object_colors() -> void:
+	var selected_id := int(player.logical_state["selection"])
+	for instance_id in object_visuals:
+		var visual: Dictionary = object_visuals[instance_id]
+		var color: Color = object_instance_colors[instance_id]
+		if object_states.has(instance_id) and bool(object_states[instance_id]["activated"]):
+			color = Color("f4d35e")
+		elif int(instance_id) == selected_id:
+			color = Color("5ee7f4")
+		var multi_mesh: MultiMesh = visual["multi_mesh"]
+		multi_mesh.set_instance_color(int(visual["index"]), color)
+
+
 func _update_hud() -> void:
 	if state_label == null or player == null:
 		return
@@ -391,8 +549,9 @@ func _update_hud() -> void:
 	state_label.text = (
 		"%s  |  %s  |  %d FPS  |  speed %.2f\n"
 		+ "hex %d  grid (%d, %d)  elevation %d  direction %d\n"
-		+ "walls %d  doors %d  scenery %d  blocking hexes %d\n"
-		+ "Mouse: look   WASD: move/strafe   SHIFT: sprint   TAB: ISO/FPP   ESC: mouse"
+		+ "walls %d  doors %d  scenery %d  blocking hexes %d  selected instance %d\n"
+		+ "%s\n"
+		+ "Mouse: look/select   WASD: move/strafe   E: interact   SHIFT: sprint   TAB: ISO/FPP"
 	) % [
 		state["map_name"],
 		active_camera_mode,
@@ -407,6 +566,8 @@ func _update_hud() -> void:
 		debug_object_counts["door"],
 		debug_object_counts["scenery"],
 		blocking_collision_count,
+		state["selection"],
+		interaction_status,
 	]
 
 
@@ -464,6 +625,8 @@ func _run_contract_checks() -> void:
 		Vector2(player.global_position.x, player.global_position.z)
 	) < 0.00001)
 	_set_camera_mode(CAMERA_ISO)
+	assert(object_states.size() >= 2)
+	assert(int(player.logical_state["selection"]) == -1)
 	assert(player.get_state_snapshot() == state_before)
 
 	var cardinal_inputs := [
@@ -630,6 +793,107 @@ func _run_blocking_collision_probe() -> void:
 	get_tree().quit(0)
 
 
+func _run_interaction_probe() -> void:
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var setup := _find_interaction_probe_setup()
+	assert(not setup.is_empty(), "No accessible blocking scenery found for interaction probe")
+	var record: Dictionary = setup["record"]
+	var instance_id := int(record["instance_id"])
+	var target_hex := int(record["hex_index"])
+	var elevation := int(record["elevation"])
+	var start_hex := int(setup["start_hex"])
+	var start_world := Coordinates.hex_index_to_world(start_hex, elevation)
+	var target_world := Coordinates.hex_index_to_world(target_hex, elevation)
+	var direction := (target_world - start_world).normalized()
+	player.global_position = start_world
+	player.velocity = Vector3.ZERO
+	player.set_view_angles(atan2(-direction.x, -direction.z), 0.0)
+	_update_cameras()
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+
+	_set_camera_mode(CAMERA_FPP)
+	_update_cameras()
+	var fpp_target := _resolve_fpp_target()
+	assert(
+		fpp_target == instance_id,
+		"FPP ray selected instance %d instead of %d" % [fpp_target, instance_id]
+	)
+	assert(
+		_interact_with_object(fpp_target),
+		"FPP interaction failed: %s" % interaction_status
+	)
+	var fpp_result: Dictionary = object_states[instance_id].duplicate(true)
+	assert(bool(fpp_result["activated"]))
+
+	object_states[instance_id]["activated"] = false
+	player.set_selection(-1)
+	_refresh_object_colors()
+	_set_camera_mode(CAMERA_ISO)
+	_update_cameras()
+	var target_screen := iso_camera.unproject_position(
+		target_world + Vector3.UP * (BLOCKING_COLLIDER_HEIGHT * 0.5)
+	)
+	var iso_target := _resolve_target_from_camera_screen(iso_camera, target_screen, 500.0)
+	assert(iso_target == instance_id, "ISO ray selected a different object instance")
+	player.set_selection(iso_target)
+	assert(_interact_with_object(iso_target), "ISO interaction failed")
+	var iso_result: Dictionary = object_states[instance_id].duplicate(true)
+	assert(iso_result == fpp_result, "ISO and FPP produced different object state")
+
+	var state_before_switch: Dictionary = player.get_state_snapshot()
+	var object_state_before_switch: Dictionary = iso_result.duplicate(true)
+	_toggle_camera()
+	_toggle_camera()
+	assert(player.get_state_snapshot() == state_before_switch)
+	assert(object_states[instance_id] == object_state_before_switch)
+
+	var evidence := {
+		"schema": "fo2remix.godot-interaction-runtime-v1",
+		"map": scene_data["map"]["name"],
+		"instance_id": instance_id,
+		"object_id": int(record["object_id"]),
+		"kind": record["kind"],
+		"prototype": record["prototype"],
+		"object_hex": target_hex,
+		"start_hex": start_hex,
+		"distance": start_world.distance_to(target_world),
+		"fpp_target_instance_id": fpp_target,
+		"iso_target_instance_id": iso_target,
+		"shared_result": iso_result,
+		"camera_round_trip_preserved_selection_and_object_state": true,
+		"passed": true,
+	}
+	var path := ProjectSettings.globalize_path(INTERACTION_RUNTIME_EVIDENCE_PATH)
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	assert(file != null, "Could not write interaction runtime evidence")
+	file.store_string(JSON.stringify(evidence, "  "))
+	print("FO2REMIX_INTERACTION_RUNTIME %s" % JSON.stringify(evidence))
+	get_tree().quit(0)
+
+
+func _find_interaction_probe_setup() -> Dictionary:
+	var blocked := {}
+	for value in scene_data["collision"]["blocking_hexes"]:
+		var blocking_record: Dictionary = value
+		blocked[_blocking_key(
+			int(blocking_record["elevation"]),
+			int(blocking_record["hex_index"])
+		)] = true
+	for value in scene_data["objects"]["records"]:
+		var record: Dictionary = value
+		if String(record["kind"]) != "scenery" or not bool(record["blocks_movement"]):
+			continue
+		var tile := int(record["hex_index"])
+		var elevation := int(record["elevation"])
+		for rotation in 6:
+			var neighbor := Coordinates.tile_in_direction(tile, rotation)
+			if neighbor != tile and not blocked.has(_blocking_key(elevation, neighbor)):
+				return {"record": record, "start_hex": neighbor}
+	return {}
+
+
 func _blocking_key(elevation: int, tile: int) -> String:
 	return "%d:%d" % [elevation, tile]
 
@@ -638,7 +902,7 @@ func _write_evidence() -> void:
 	var state: Dictionary = player.logical_state
 	var round_trip_count := 11
 	var evidence := {
-		"schema": "fo2remix.godot-scene-contract-v3",
+		"schema": "fo2remix.godot-scene-contract-v4",
 		"fallout2_ce_commit": FALLOUT2_CE_COMMIT,
 		"scene_schema": scene_data["schema"],
 		"map": state["map_name"],
@@ -659,6 +923,13 @@ func _write_evidence() -> void:
 		"starts_in_fpp": true,
 		"camera_round_trip_preserved_state": true,
 		"movement_same_target_in_iso_and_fpp": true,
+		"interaction": {
+			"input": "E",
+			"maximum_distance": INTERACTION_DISTANCE,
+			"fpp_targeting": "center camera ray",
+			"iso_targeting": "mouse camera ray",
+			"shared_object_state": true,
+		},
 		"world_to_hex_round_trip_records": round_trip_count,
 		"wasd": {
 			"forward": "W",

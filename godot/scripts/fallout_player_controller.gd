@@ -49,6 +49,13 @@ func get_state_snapshot() -> Dictionary:
 	return snapshot
 
 
+func set_selection(instance_id: int) -> void:
+	if int(logical_state["selection"]) == instance_id:
+		return
+	logical_state["selection"] = instance_id
+	_emit_logical_state()
+
+
 func _after_motion_step() -> void:
 	if initialized:
 		_sync_logical_hex()

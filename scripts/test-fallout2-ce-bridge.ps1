@@ -41,11 +41,11 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $events = @(Get-Content -LiteralPath $tracePath | ForEach-Object { $_ | ConvertFrom-Json })
-if ($events.Count -ne 5) {
-    throw "Expected 5 bridge events, found $($events.Count)."
+if ($events.Count -ne 6) {
+    throw "Expected 6 bridge events, found $($events.Count)."
 }
 
-$expectedEventNames = @('session_started', 'map_loaded', 'player_moved', 'interaction', 'object_state')
+$expectedEventNames = @('session_started', 'map_loaded', 'object_state', 'player_moved', 'interaction', 'object_state')
 for ($index = 0; $index -lt $expectedEventNames.Count; $index++) {
     if ($events[$index].event -ne $expectedEventNames[$index]) {
         throw "Expected event $($expectedEventNames[$index]) at index $index, found $($events[$index].event)."
@@ -61,17 +61,24 @@ for ($index = 0; $index -lt $expectedEventNames.Count; $index++) {
 if ($events[1].map.name -ne 'AR"TEMPLE.MAP' -or $events[1].player.hex_index -ne 18492) {
     throw 'map_loaded payload failed validation.'
 }
-if ($events[2].player.rotation -ne 2) {
+if (-not $events[2].snapshot `
+    -or $events[2].target.instance_id -ne 17 `
+    -or $events[2].state.open `
+    -or -not $events[2].state.blocks_movement) {
+    throw 'initial door snapshot failed validation.'
+}
+if ($events[3].player.rotation -ne 2) {
     throw 'player_moved payload failed validation.'
 }
-if ($events[3].target.instance_id -ne 17 -or $events[3].target.object_id -ne 16 -or $events[3].result -ne 0) {
+if ($events[4].target.instance_id -ne 17 -or $events[4].target.object_id -ne 16 -or $events[4].result -ne 0) {
     throw 'interaction payload failed validation.'
 }
-if ($events[4].target.instance_id -ne 17 `
-    -or -not $events[4].state.open `
-    -or $events[4].state.locked `
-    -or $events[4].state.jammed `
-    -or $events[4].state.blocks_movement) {
+if ($events[5].snapshot `
+    -or $events[5].target.instance_id -ne 17 `
+    -or -not $events[5].state.open `
+    -or $events[5].state.locked `
+    -or $events[5].state.jammed `
+    -or $events[5].state.blocks_movement) {
     throw 'object_state door payload failed validation.'
 }
 

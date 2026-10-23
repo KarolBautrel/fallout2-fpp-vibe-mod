@@ -45,8 +45,14 @@ index 20b7aef..ea77fc2 100644
 +    fppBridgeResetMapObjects();
 +    int bridgeInstanceId = 0;
 +
-@@ -531,0 +536,2 @@ static int objectLoadAllInternal(File* stream)
+@@ -531,0 +536,8 @@ static int objectLoadAllInternal(File* stream)
 +            fppBridgeRegisterMapObject(objectListNode->obj, bridgeInstanceId++);
++            Proto* bridgeProto;
++            if (PID_TYPE(objectListNode->obj->pid) == OBJ_TYPE_SCENERY
++                && protoGetProto(objectListNode->obj->pid, &bridgeProto) != -1
++                && bridgeProto->scenery.type == SCENERY_TYPE_DOOR) {
++                fppBridgeRegisterDoor(objectListNode->obj);
++            }
 +
 diff --git a/src/proto_instance.cc b/src/proto_instance.cc
 index 02bb39d..4d6e1c7 100644

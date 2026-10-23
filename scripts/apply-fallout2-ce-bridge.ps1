@@ -43,6 +43,7 @@ $alreadyApplied = (Test-Path -LiteralPath $targetSource) `
     -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\map.cc') -SimpleMatch 'char temp[COMPAT_MAX_PATH]' -Quiet) `
     -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\map.cc') -SimpleMatch 'snprintf(temp, sizeof(temp), "%s\\MAPS"' -Quiet) `
     -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\object.cc') -SimpleMatch 'fppBridgeRegisterMapObject' -Quiet) `
+    -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\object.cc') -SimpleMatch 'fppBridgeRegisterDoor' -Quiet) `
     -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\proto_instance.cc') -SimpleMatch 'fppBridgeEmitInteraction' -Quiet) `
     -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\proto_instance.cc') -SimpleMatch 'fppBridgeEmitDoorState(door)' -Quiet)
 

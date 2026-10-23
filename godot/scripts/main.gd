@@ -3,6 +3,7 @@ extends Node3D
 const Coordinates = preload("res://scripts/fallout_coordinate_space.gd")
 const PlayerController = preload("res://scripts/fallout_player_controller.gd")
 const StateBridge = preload("res://scripts/fallout_state_bridge.gd")
+const StoneWallShader = preload("res://shaders/fallout_stone_wall.gdshader")
 
 const DEFAULT_MAP_KEY := "artemple"
 const SCENE_PATHS := {
@@ -23,11 +24,14 @@ const FALLOUT2_CE_COMMIT := "e97087b9582f37075db347a89898887320753f8b"
 
 const FLOOR_CELL_COUNT := 100 * 100
 const FLOOR_THICKNESS := 0.08
+const CEILING_WALL_OVERLAP := 0.08
 const BLOCKING_COLLIDER_HEIGHT := 2.4
 const BLOCKING_COLLIDER_RADIUS := 0.42
 const INTERACTION_DISTANCE := 1.75
 const INTERACTION_RAY_DISTANCE := 2.25
 const INFERRED_CEILING_MIN_HEXES := 16
+const INTERIOR_CEILING_MIN_WALLS := 100
+const INTERIOR_CEILING_WALL_DENSITY := 0.08
 const CAMERA_ISO := "ISO"
 const CAMERA_FPP := "FPP"
 
@@ -40,14 +44,13 @@ var ceiling_instances: Array[MultiMeshInstance3D] = []
 var inferred_ceiling_instances: Array[MeshInstance3D] = []
 var inferred_ceiling_cell_count := 0
 var inferred_ceiling_component_count := 0
+var ceiling_strategy := "roof_tiles"
 var elevation_roots := {}
 var active_elevation := -1
 var debug_object_counts := {"wall": 0, "door": 0, "scenery": 0}
 var wall_mesh_face_count := 0
 var wall_mesh_elevation_count := 0
 var wall_profile_match_count := 0
-var wall_art_overlay_face_count := 0
-var wall_art_overlay_asset_count := 0
 var blocking_collision_count := 0
 var object_records_by_instance_id := {}
 var object_states := {}
@@ -153,8 +156,9 @@ func _run_render_performance_probe() -> void:
 		"measured_frames": measured_frames,
 		"elapsed_seconds": elapsed_seconds,
 		"average_fps": average_fps,
-		"wall_art_overlay_faces": wall_art_overlay_face_count,
+		"wall_mesh_faces": wall_mesh_face_count,
 		"inferred_ceiling_cells": inferred_ceiling_cell_count,
+		"ceiling_strategy": ceiling_strategy,
 		"passed_30_fps": average_fps >= 30.0,
 	}
 	var file := FileAccess.open(
@@ -343,9 +347,10 @@ func _create_ground_collision() -> void:
 
 
 func _create_ceiling_grid() -> void:
-	var column_axis := Vector3(1.5, 0.0, -Coordinates.SQRT_3_OVER_2) * 0.992
-	var row_axis := Vector3(1.0, 0.0, 2.0 * Coordinates.SQRT_3_OVER_2) * 0.992
+	var column_axis := Vector3(1.5, 0.0, -Coordinates.SQRT_3_OVER_2) * 1.006
+	var row_axis := Vector3(1.0, 0.0, 2.0 * Coordinates.SQRT_3_OVER_2) * 1.006
 	var cell_basis := Basis(column_axis, Vector3(0.0, FLOOR_THICKNESS, 0.0), row_axis)
+	var use_floor_footprint := _should_use_floor_footprint_ceiling()
 	for layer_value in scene_data["tile_grid"]["layers"]:
 		var layer: Dictionary = layer_value
 		var roof_ids: Array = layer["roof_ids"]
@@ -354,7 +359,12 @@ func _create_ceiling_grid() -> void:
 			if int(roof_id) != 1:
 				roof_cell_count += 1
 		if roof_cell_count == 0:
-			_create_inferred_ceiling(int(layer["elevation"]))
+			if use_floor_footprint:
+				ceiling_strategy = "floor_footprint"
+				_create_floor_footprint_ceiling(layer, cell_basis)
+			else:
+				ceiling_strategy = "enclosed_regions"
+				_create_inferred_ceiling(int(layer["elevation"]))
 			continue
 
 		var material := StandardMaterial3D.new()
@@ -381,7 +391,7 @@ func _create_ceiling_grid() -> void:
 			var row := int(tile_index / Coordinates.FLOOR_GRID_WIDTH)
 			var elevation := int(layer["elevation"])
 			var origin := Coordinates.square_grid_to_world(column, row, elevation)
-			origin.y += Coordinates.ELEVATION_HEIGHT + FLOOR_THICKNESS * 0.5
+			origin.y += Coordinates.ELEVATION_HEIGHT - FLOOR_THICKNESS * 0.5
 			multi_mesh.set_instance_transform(
 				instance_index,
 				Transform3D(cell_basis, origin)
@@ -396,6 +406,66 @@ func _create_ceiling_grid() -> void:
 		ceiling_instances.append(layer_instances)
 		_get_elevation_root(elevation).add_child(layer_instances)
 	_refresh_ceiling_visibility()
+
+
+func _should_use_floor_footprint_ceiling() -> bool:
+	var wall_count := int(scene_data.get("objects", {}).get("wall_count", 0))
+	if wall_count < INTERIOR_CEILING_MIN_WALLS:
+		return false
+	var floor_count := 0
+	for layer_value in scene_data["tile_grid"]["layers"]:
+		var layer: Dictionary = layer_value
+		for floor_id in layer["floor_ids"]:
+			if int(floor_id) != 1:
+				floor_count += 1
+	return float(wall_count) / float(maxi(floor_count, 1)) >= INTERIOR_CEILING_WALL_DENSITY
+
+
+func _create_floor_footprint_ceiling(layer: Dictionary, cell_basis: Basis) -> void:
+	var floor_ids: Array = layer["floor_ids"]
+	var cell_count := 0
+	for floor_id in floor_ids:
+		if int(floor_id) != 1:
+			cell_count += 1
+	if cell_count == 0:
+		return
+
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.roughness = 0.97
+	var cell_mesh := BoxMesh.new()
+	cell_mesh.size = Vector3.ONE
+	cell_mesh.material = material
+
+	var multi_mesh := MultiMesh.new()
+	multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
+	multi_mesh.use_colors = true
+	multi_mesh.mesh = cell_mesh
+	multi_mesh.instance_count = cell_count
+
+	var elevation := int(layer["elevation"])
+	var instance_index := 0
+	for tile_index in FLOOR_CELL_COUNT:
+		var floor_id := int(floor_ids[tile_index])
+		if floor_id == 1:
+			continue
+		var column := Coordinates.FLOOR_GRID_WIDTH - 1 - (
+			tile_index % Coordinates.FLOOR_GRID_WIDTH
+		)
+		var row := int(tile_index / Coordinates.FLOOR_GRID_WIDTH)
+		var origin := Coordinates.square_grid_to_world(column, row, elevation)
+		origin.y += Coordinates.ELEVATION_HEIGHT - FLOOR_THICKNESS * 0.5
+		multi_mesh.set_instance_transform(instance_index, Transform3D(cell_basis, origin))
+		multi_mesh.set_instance_color(instance_index, Color("352f29"))
+		instance_index += 1
+
+	var instances := MultiMeshInstance3D.new()
+	instances.name = "FloorFootprintCeilingElevation%d" % elevation
+	instances.multimesh = multi_mesh
+	ceiling_instances.append(instances)
+	_get_elevation_root(elevation).add_child(instances)
+	inferred_ceiling_cell_count += cell_count
+	inferred_ceiling_component_count += 1
 
 
 func _create_inferred_ceiling(elevation: int) -> void:
@@ -469,8 +539,8 @@ func _create_inferred_ceiling(elevation: int) -> void:
 		var component: Array = ceiling_components[component_index]
 		var color := Color.from_hsv(
 			0.075 + float(component_index % 5) * 0.008,
-			0.13,
-			0.31,
+			0.24,
+			0.27,
 			1.0
 		)
 		for tile_value in component:
@@ -510,7 +580,7 @@ func _add_ceiling_hex(
 	color: Color
 ) -> void:
 	var center := Coordinates.hex_index_to_world(tile, elevation)
-	center.y += Coordinates.ELEVATION_HEIGHT
+	center.y += Coordinates.ELEVATION_HEIGHT - CEILING_WALL_OVERLAP
 	for direction_index in 6:
 		var first_direction := Coordinates.direction_to_world(tile, direction_index)
 		var second_direction := Coordinates.direction_to_world(
@@ -559,7 +629,6 @@ func _create_map_object_debug_geometry() -> void:
 		if not _art_profile_for_record(wall).is_empty():
 			wall_profile_match_count += 1
 	_create_wall_topology_mesh(walls)
-	_create_wall_art_overlays(walls)
 	_create_object_instances("DebugDoors", doors, Vector3(0.9, 2.1, 0.18), Color("d18152"))
 	_create_door_art_overlays(doors)
 	_create_object_instances(
@@ -649,97 +718,13 @@ func _create_wall_topology_mesh(records: Array[Dictionary]) -> void:
 		var mesh := surface.commit()
 		if mesh == null:
 			continue
-		var material := StandardMaterial3D.new()
-		material.vertex_color_use_as_albedo = true
-		material.roughness = 0.9
+		var material := ShaderMaterial.new()
+		material.shader = StoneWallShader
 		mesh.surface_set_material(0, material)
 		var instance := MeshInstance3D.new()
 		instance.name = "WallTopologyElevation%d" % elevation
 		instance.mesh = mesh
 		_get_elevation_root(elevation).add_child(instance)
-
-
-func _create_wall_art_overlays(records: Array[Dictionary]) -> void:
-	var cells_by_elevation := {}
-	for record in records:
-		var elevation := int(record["elevation"])
-		if not cells_by_elevation.has(elevation):
-			cells_by_elevation[elevation] = {}
-		cells_by_elevation[elevation][int(record["hex_index"])] = record
-
-	var groups := {}
-	var map_key := _map_stem(String(scene_data["map"]["name"]))
-	for elevation_value in cells_by_elevation:
-		var elevation := int(elevation_value)
-		var cells: Dictionary = cells_by_elevation[elevation]
-		for tile_value in cells:
-			var tile := int(tile_value)
-			var record: Dictionary = cells[tile]
-			var source_path := String(record.get("art", {}).get("path", ""))
-			if source_path.is_empty():
-				continue
-			var normalized_path := source_path.replace("\\", "/").to_lower()
-			var file_stem := normalized_path.get_file().get_basename()
-			var cache_path := (
-				"res://../artifacts/art-cache/%s/walls/%s-r0-f0.png" % [
-					map_key,
-					file_stem,
-				]
-			)
-			if not FileAccess.file_exists(cache_path):
-				continue
-			var group_key := "%d|%s" % [elevation, cache_path]
-			if not groups.has(group_key):
-				groups[group_key] = {
-					"elevation": elevation,
-					"cache_path": cache_path,
-					"transforms": [],
-				}
-			var center := Coordinates.hex_index_to_world(tile, elevation)
-			for direction_index in 6:
-				var neighbor := Coordinates.tile_in_direction(tile, direction_index)
-				if neighbor != tile and cells.has(neighbor):
-					continue
-				var outward := Coordinates.direction_to_world(tile, direction_index)
-				var tangent := Vector3(outward.z, 0.0, -outward.x)
-				var basis := Basis(tangent, Vector3.UP, outward)
-				var origin := center + outward * 0.503
-				origin.y += Coordinates.ELEVATION_HEIGHT * 0.5
-				groups[group_key]["transforms"].append(Transform3D(basis, origin))
-
-	wall_art_overlay_face_count = 0
-	wall_art_overlay_asset_count = 0
-	for group_value in groups.values():
-		var group: Dictionary = group_value
-		var transforms: Array = group["transforms"]
-		if transforms.is_empty():
-			continue
-		var image := Image.new()
-		var absolute_path := ProjectSettings.globalize_path(String(group["cache_path"]))
-		if image.load(absolute_path) != OK:
-			continue
-		var texture := ImageTexture.create_from_image(image)
-		var material := StandardMaterial3D.new()
-		material.albedo_texture = texture
-		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-		material.alpha_scissor_threshold = 0.5
-		material.cull_mode = BaseMaterial3D.CULL_DISABLED
-		material.roughness = 0.95
-		var quad := QuadMesh.new()
-		quad.size = Vector2(0.575, Coordinates.ELEVATION_HEIGHT * 0.98)
-		quad.material = material
-		var multi_mesh := MultiMesh.new()
-		multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
-		multi_mesh.mesh = quad
-		multi_mesh.instance_count = transforms.size()
-		for index in transforms.size():
-			multi_mesh.set_instance_transform(index, transforms[index])
-		var instances := MultiMeshInstance3D.new()
-		instances.name = "WallArt_%s" % String(group["cache_path"]).get_file().get_basename()
-		instances.multimesh = multi_mesh
-		_get_elevation_root(int(group["elevation"])).add_child(instances)
-		wall_art_overlay_face_count += transforms.size()
-		wall_art_overlay_asset_count += 1
 
 
 func _add_colored_triangle(
@@ -989,8 +974,8 @@ func _debug_floor_color(floor_id: int) -> Color:
 
 func _debug_ceiling_color(roof_id: int) -> Color:
 	var hue := fmod(0.08 + float(roof_id % 13) * 0.007, 1.0)
-	var value := 0.28 + float(roof_id % 5) * 0.025
-	return Color.from_hsv(hue, 0.12, value, 1.0)
+	var value := 0.24 + float(roof_id % 5) * 0.018
+	return Color.from_hsv(hue, 0.24, value, 1.0)
 
 
 func _count_rendered_floor_cells() -> int:
@@ -1014,9 +999,16 @@ func _count_rendered_ceiling_cells() -> int:
 	var count := 0
 	for layer_value in scene_data["tile_grid"]["layers"]:
 		var layer: Dictionary = layer_value
+		var layer_roof_count := 0
 		for roof_id in layer["roof_ids"]:
 			if int(roof_id) != 1:
-				count += 1
+				layer_roof_count += 1
+		if layer_roof_count > 0:
+			count += layer_roof_count
+		elif ceiling_strategy == "floor_footprint":
+			for floor_id in layer["floor_ids"]:
+				if int(floor_id) != 1:
+					count += 1
 	return count
 
 
@@ -1276,6 +1268,8 @@ func _handle_bridge_map_loaded(event: Dictionary) -> void:
 			map_state.get("index", -1),
 		]
 		return
+	player.set_selection(-1)
+	interaction_status = "CE map snapshot: %s" % bridge_map_name
 	_apply_or_compare_bridge_player(String(map_state["name"]), player_state, "map_loaded")
 
 
@@ -1319,14 +1313,13 @@ func _rebuild_map_geometry() -> void:
 	wall_mesh_face_count = 0
 	wall_mesh_elevation_count = 0
 	wall_profile_match_count = 0
-	wall_art_overlay_face_count = 0
-	wall_art_overlay_asset_count = 0
 	blocking_collision_count = 0
 	floor_instances.clear()
 	ceiling_instances.clear()
 	inferred_ceiling_instances.clear()
 	inferred_ceiling_cell_count = 0
 	inferred_ceiling_component_count = 0
+	ceiling_strategy = "roof_tiles"
 	elevation_roots.clear()
 	_create_floor_grid()
 	_create_ceiling_grid()
@@ -1471,21 +1464,25 @@ func _handle_bridge_object_state(event: Dictionary) -> void:
 
 	if not object_states.has(instance_id):
 		object_states[instance_id] = {"activated": false}
+	var is_snapshot := bool(event.get("snapshot", false))
 	var local_state: Dictionary = object_states[instance_id]
-	local_state["activated"] = true
+	local_state["activated"] = false if is_snapshot else true
 	local_state["open"] = bool(state.get("open", false))
 	local_state["locked"] = bool(state.get("locked", false))
 	local_state["jammed"] = bool(state.get("jammed", false))
 	local_state["blocks_movement"] = bool(state.get("blocks_movement", true))
-	player.set_selection(instance_id)
+	if not is_snapshot:
+		player.set_selection(instance_id)
 	_refresh_object_colors()
 	_refresh_object_collisions(instance_id)
 	bridge_events_applied += 1
-	bridge_parity_status = "APPLIED door %d %s" % [
+	bridge_parity_status = "%s door %d %s" % [
+		"SYNCED" if is_snapshot else "APPLIED",
 		instance_id,
 		"OPEN" if bool(local_state["open"]) else "CLOSED",
 	]
-	interaction_status = "CE door instance %d: %s%s%s" % [
+	interaction_status = "CE door %s instance %d: %s%s%s" % [
+		"snapshot" if is_snapshot else "delta",
 		instance_id,
 		"OPEN" if bool(local_state["open"]) else "CLOSED",
 		" LOCKED" if bool(local_state["locked"]) else "",
@@ -1497,6 +1494,7 @@ func _handle_bridge_object_state(event: Dictionary) -> void:
 		"target": target.duplicate(true),
 		"state": local_state.duplicate(true),
 		"identity_matches": true,
+		"snapshot": is_snapshot,
 	}
 
 
@@ -1778,8 +1776,6 @@ func _run_contract_checks() -> void:
 	assert(wall_mesh_face_count > 0)
 	assert(wall_mesh_elevation_count == _count_wall_elevations())
 	assert(wall_profile_match_count <= debug_object_counts["wall"])
-	assert(wall_art_overlay_face_count > 0)
-	assert(wall_art_overlay_asset_count > 0)
 	assert(debug_object_counts["door"] == int(object_section["door_count"]))
 	assert(door_art_overlay_count <= debug_object_counts["door"])
 	assert(debug_object_counts["scenery"] == int(object_section["scenery_count"]))
@@ -1926,6 +1922,15 @@ func _run_bridge_probe() -> void:
 	var target_instance_id := int(target["instance_id"])
 	assert(object_states.has(target_instance_id), "Bridge probe target is not interactable")
 
+	var tests_door_state := String(target.get("kind", "")) == "door"
+	var target_payload := {
+		"instance_id": target_instance_id,
+		"object_id": int(target["object_id"]),
+		"pid": int(target["pid"]),
+		"hex_index": int(target["hex_index"]),
+		"elevation": int(target["elevation"]),
+		"rotation": int(target["rotation"]),
+	}
 	var events := [
 		{
 			"schema": "fo2remix.bridge-v1",
@@ -1945,47 +1950,58 @@ func _run_bridge_probe() -> void:
 				"rotation": int(spawn["rotation"]),
 			},
 		},
-		{
-			"schema": "fo2remix.bridge-v1",
-			"sequence": 2,
-			"event": "player_moved",
-			"player": {
-				"object_id": 18000,
-				"pid": 16777216,
-				"hex_index": moved_hex,
-				"elevation": int(spawn["elevation"]),
-				"rotation": 2,
-			},
-		},
-		{
-			"schema": "fo2remix.bridge-v1",
-			"sequence": 3,
-			"event": "interaction",
-			"actor": {
-				"object_id": 18000,
-				"pid": 16777216,
-				"hex_index": moved_hex,
-				"elevation": int(spawn["elevation"]),
-				"rotation": 2,
-			},
-			"target": {
-				"instance_id": target_instance_id,
-				"object_id": int(target["object_id"]),
-				"pid": int(target["pid"]),
-				"hex_index": int(target["hex_index"]),
-				"elevation": int(target["elevation"]),
-				"rotation": int(target["rotation"]),
-			},
-			"result": 0,
-		},
 	]
-	var tests_door_state := String(target.get("kind", "")) == "door"
 	if tests_door_state:
 		events.append({
 			"schema": "fo2remix.bridge-v1",
-			"sequence": 4,
+			"sequence": events.size(),
 			"event": "object_state",
-			"target": events[3]["target"].duplicate(true),
+			"snapshot": true,
+			"target": target_payload.duplicate(true),
+			"state": {
+				"kind": "door",
+				"open": false,
+				"locked": false,
+				"jammed": false,
+				"blocks_movement": true,
+			},
+		})
+	var initial_event_count := events.size()
+	var moved_event_index := events.size()
+	events.append({
+		"schema": "fo2remix.bridge-v1",
+		"sequence": events.size(),
+		"event": "player_moved",
+		"player": {
+			"object_id": 18000,
+			"pid": 16777216,
+			"hex_index": moved_hex,
+			"elevation": int(spawn["elevation"]),
+			"rotation": 2,
+		},
+	})
+	var interaction_event_index := events.size()
+	events.append({
+		"schema": "fo2remix.bridge-v1",
+		"sequence": events.size(),
+		"event": "interaction",
+		"actor": {
+			"object_id": 18000,
+			"pid": 16777216,
+			"hex_index": moved_hex,
+			"elevation": int(spawn["elevation"]),
+			"rotation": 2,
+		},
+		"target": target_payload.duplicate(true),
+		"result": 0,
+	})
+	if tests_door_state:
+		events.append({
+			"schema": "fo2remix.bridge-v1",
+			"sequence": events.size(),
+			"event": "object_state",
+			"snapshot": false,
+			"target": target_payload.duplicate(true),
 			"state": {
 				"kind": "door",
 				"open": true,
@@ -1998,13 +2014,21 @@ func _run_bridge_probe() -> void:
 	var trace_path := ProjectSettings.globalize_path(BRIDGE_PROBE_TRACE_PATH)
 	var trace_file := FileAccess.open(trace_path, FileAccess.WRITE)
 	assert(trace_file != null, "Could not write bridge probe trace")
-	trace_file.store_line(JSON.stringify(events[0]))
-	trace_file.store_line(JSON.stringify(events[1]))
+	for index in initial_event_count:
+		trace_file.store_line(JSON.stringify(events[index]))
 	trace_file.close()
 	state_bridge.poll_now()
-	assert(state_bridge.events_received == 2, "Godot did not consume initial bridge events")
+	assert(
+		state_bridge.events_received == initial_event_count,
+		"Godot did not consume initial bridge events"
+	)
+	if tests_door_state:
+		assert(not bool(object_states[target_instance_id]["open"]))
+		assert(bool(object_states[target_instance_id]["blocks_movement"]))
+		assert(not bool(object_states[target_instance_id]["activated"]))
+		assert(int(player.logical_state["selection"]) == -1)
 
-	var moved_line := JSON.stringify(events[2])
+	var moved_line := JSON.stringify(events[moved_event_index])
 	var split_index := int(moved_line.length() / 2)
 	var append_file := FileAccess.open(trace_path, FileAccess.READ_WRITE)
 	assert(append_file != null, "Could not append partial bridge probe event")
@@ -2012,15 +2036,18 @@ func _run_bridge_probe() -> void:
 	append_file.store_string(moved_line.substr(0, split_index))
 	append_file.close()
 	state_bridge.poll_now()
-	assert(state_bridge.events_received == 2, "Partial JSONL event was consumed too early")
+	assert(
+		state_bridge.events_received == initial_event_count,
+		"Partial JSONL event was consumed too early"
+	)
 
 	append_file = FileAccess.open(trace_path, FileAccess.READ_WRITE)
 	assert(append_file != null, "Could not finish partial bridge probe event")
 	append_file.seek_end()
 	append_file.store_line(moved_line.substr(split_index))
-	append_file.store_line(JSON.stringify(events[3]))
+	append_file.store_line(JSON.stringify(events[interaction_event_index]))
 	if tests_door_state:
-		append_file.store_line(JSON.stringify(events[4]))
+		append_file.store_line(JSON.stringify(events[events.size() - 1]))
 	append_file.close()
 	state_bridge.poll_now()
 
@@ -2064,6 +2091,7 @@ func _run_bridge_probe() -> void:
 		"target_object_id": int(target["object_id"]),
 		"interaction_activated": bool(object_states[target_instance_id]["activated"]),
 		"door_state_verified": tests_door_state,
+		"door_snapshot_closed_verified": tests_door_state,
 		"door_open": bool(object_states[target_instance_id].get("open", false)),
 		"door_collision_disabled": (
 			tests_door_state
@@ -2314,6 +2342,7 @@ func _write_evidence() -> void:
 		"ceiling_instances": _count_ceiling_instances(),
 		"inferred_ceiling_cells": inferred_ceiling_cell_count,
 		"inferred_ceiling_components": inferred_ceiling_component_count,
+		"ceiling_strategy": ceiling_strategy,
 		"ceilings_visible_in_fpp": active_camera_mode == CAMERA_FPP,
 		"active_elevation": active_elevation,
 		"visible_elevation_count": _count_visible_elevations(),
@@ -2323,8 +2352,7 @@ func _write_evidence() -> void:
 			"wall_mesh_faces": wall_mesh_face_count,
 			"wall_mesh_elevations": wall_mesh_elevation_count,
 			"wall_profile_matches": wall_profile_match_count,
-			"wall_art_overlay_faces": wall_art_overlay_face_count,
-			"wall_art_overlay_assets": wall_art_overlay_asset_count,
+			"wall_material": "procedural_stone_from_source_palette",
 			"doors": debug_object_counts["door"],
 			"door_art_overlays": door_art_overlay_count,
 			"scenery": debug_object_counts["scenery"],

@@ -7,6 +7,7 @@ namespace fallout {
 
 void fppBridgeResetMapObjects();
 void fppBridgeRegisterMapObject(const Object* object, int instanceId);
+void fppBridgeRegisterDoor(const Object* door);
 void fppBridgeEmitMapLoaded(const char* mapName, int mapIndex, const Object* player);
 void fppBridgePollPlayer(const Object* player);
 void fppBridgeEmitInteraction(const Object* actor, const Object* target, int result);

@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include <unordered_map>
+#include <vector>
 
 namespace fallout {
 
@@ -15,6 +16,7 @@ static int gFppBridgePlayerTile = -1;
 static int gFppBridgePlayerElevation = -1;
 static int gFppBridgePlayerRotation = -1;
 static std::unordered_map<const Object*, int> gFppBridgeInstanceIds;
+static std::vector<const Object*> gFppBridgeDoors;
 
 static FILE* fppBridgeGetStream()
 {
@@ -121,6 +123,7 @@ void fppBridgeResetMapObjects()
     }
 
     gFppBridgeInstanceIds.clear();
+    gFppBridgeDoors.clear();
     gFppBridgeHasPlayerState = false;
 }
 
@@ -131,6 +134,33 @@ void fppBridgeRegisterMapObject(const Object* object, int instanceId)
     }
 
     gFppBridgeInstanceIds[object] = instanceId;
+}
+
+void fppBridgeRegisterDoor(const Object* door)
+{
+    if (fppBridgeGetStream() == nullptr || door == nullptr) {
+        return;
+    }
+
+    gFppBridgeDoors.push_back(door);
+}
+
+static void fppBridgeWriteDoorState(FILE* stream, const Object* door, bool snapshot)
+{
+    int openFlags = door->data.scenery.door.openFlags;
+    bool isOpen = (openFlags & 0x01) != 0;
+    fprintf(stream,
+        "{\"schema\":\"fo2remix.bridge-v1\",\"sequence\":%llu,\"event\":\"object_state\",\"snapshot\":%s,\"target\":",
+        gFppBridgeSequence++,
+        snapshot ? "true" : "false");
+    fppBridgeWriteObjectState(stream, door, true);
+    fprintf(stream,
+        ",\"state\":{\"kind\":\"door\",\"open\":%s,\"locked\":%s,\"jammed\":%s,\"blocks_movement\":%s}}\n",
+        isOpen ? "true" : "false",
+        (openFlags & DOOR_FLAG_LOCKED) != 0 ? "true" : "false",
+        (openFlags & DOOR_FLAG_JAMMGED) != 0 ? "true" : "false",
+        isOpen ? "false" : "true");
+    fflush(stream);
 }
 
 void fppBridgeEmitMapLoaded(const char* mapName, int mapIndex, const Object* player)
@@ -153,6 +183,10 @@ void fppBridgeEmitMapLoaded(const char* mapName, int mapIndex, const Object* pla
     gFppBridgePlayerElevation = player->elevation;
     gFppBridgePlayerRotation = player->rotation;
     gFppBridgeHasPlayerState = true;
+
+    for (const Object* door : gFppBridgeDoors) {
+        fppBridgeWriteDoorState(stream, door, true);
+    }
 }
 
 void fppBridgePollPlayer(const Object* player)
@@ -206,19 +240,7 @@ void fppBridgeEmitDoorState(const Object* door)
         return;
     }
 
-    int openFlags = door->data.scenery.door.openFlags;
-    bool isOpen = (openFlags & 0x01) != 0;
-    fprintf(stream,
-        "{\"schema\":\"fo2remix.bridge-v1\",\"sequence\":%llu,\"event\":\"object_state\",\"target\":",
-        gFppBridgeSequence++);
-    fppBridgeWriteObjectState(stream, door, true);
-    fprintf(stream,
-        ",\"state\":{\"kind\":\"door\",\"open\":%s,\"locked\":%s,\"jammed\":%s,\"blocks_movement\":%s}}\n",
-        isOpen ? "true" : "false",
-        (openFlags & DOOR_FLAG_LOCKED) != 0 ? "true" : "false",
-        (openFlags & DOOR_FLAG_JAMMGED) != 0 ? "true" : "false",
-        isOpen ? "false" : "true");
-    fflush(stream);
+    fppBridgeWriteDoorState(stream, door, false);
 }
 
 } // namespace fallout

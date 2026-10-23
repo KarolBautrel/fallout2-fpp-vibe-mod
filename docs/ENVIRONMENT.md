@@ -60,7 +60,7 @@ Lokalny checkout ma obecnie nałożony wersjonowany bridge z
 się bez błędów. Aktualna binarka ma SHA-256:
 
 ```text
-651A0AEF2E7B1CAD8D3790C15AC3B08BFA69F56733D19B867230229EE59F594A
+4C491CAF7F97AA668E3F1233B1D7A569197CD42855B42E0EC701F9A048335026
 ```
 
 Instrukcje odtworzenia i testu: `docs/STATE_BRIDGE.md`.

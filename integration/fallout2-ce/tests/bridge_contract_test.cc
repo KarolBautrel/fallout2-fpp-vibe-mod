@@ -40,6 +40,7 @@ int main(int argc, char** argv)
 
     fppBridgeResetMapObjects();
     fppBridgeRegisterMapObject(&target, 17);
+    fppBridgeRegisterDoor(&target);
     fppBridgeEmitMapLoaded("AR\"TEMPLE.MAP", 1, &player);
 
     // An unchanged frame must not duplicate player state.

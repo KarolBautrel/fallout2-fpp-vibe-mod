@@ -34,9 +34,12 @@ Dla ARCAVES z 2622 instancjami ścian utworzyło 126 unikalnych PNG i manifest
 `fo2remix.art-cache-v1` w około pół sekundy. Tryb `--all-frames` utworzył 166
 PNG o łącznym rozmiarze około 0,5 MB. Eksporter zapisuje również średni
 kolor nieprzezroczystych pikseli FRM, z którego korzysta debugowy materiał 3D.
-Pierwsza warstwa projekcji nakłada również cache'owaną klatkę źródłowego FRM na
-każdą odsłoniętą ścianę. Bazowa bryła pozostaje pod spodem, więc przezroczyste
-fragmenty sprite'a nie tworzą dziur w geometrii.
+Eksperyment z bezpośrednim nakładaniem klatki FRM na każdą odsłoniętą ścianę
+został odrzucony po teście wizualnym: izometryczne sprite'y tworzyły nachodzące
+na siebie pionowe karty, widoczne zęby i niespójne łączenia. Ściany korzystają
+teraz wyłącznie ze wspólnej siatki topologii oraz proceduralnego materiału
+kamienia. FRM nadal dostarcza kolor i identyfikację rodziny materiału, ale nie
+jest rozciągany jako tekstura całej ściany.
 Drzwi korzystają z osobnego panelu źródłowego: stan zamknięty pokazuje klatkę
 `0`, a odebrane z bridge'a otwarcie przełącza grafikę na ostatnią klatkę FRM.
 Kolizja i stan nadal pochodzą z `fallout2-ce`, nie z animacji.
@@ -48,10 +51,13 @@ usuwa niewidoczne ściany pomiędzy sąsiadującymi komórkami i rozdziela wynik
 elevation. Podłogi, ściany, drzwi i sceneria z innych elevation są ukrywane,
 gdy postać znajduje się na bieżącym poziomie. Ten kod działa na dowolnym
 `scene-v1`, więc kolejna lokacja nie wymaga osobnego modelowania topologii.
-Jeżeli MAP ma jawne `roof_ids`, powstają z nich sufity. Jeżeli — jak ARTEMPLE i
-ARCAVES — dachy są puste, renderer wykrywa zamknięte obszary flood-fillem po
-blokadach i generuje proceduralne sufity. Są widoczne w FPP, ukryte w ISO i
-dzielone według aktywnego elevation.
+Jeżeli MAP ma jawne `roof_ids`, powstają z nich sufity. Gdy dachy są puste,
+renderer wybiera jedną z dwóch automatycznych strategii. Dla gęstych wnętrz,
+takich jak ARCAVES, sufit pokrywa footprint wszystkich niepustych kafli podłogi;
+dla rzadszych map, takich jak ARTEMPLE, zamknięte regiony są wykrywane
+flood-fillem po blokadach. Płyty sufitu lekko zachodzą na górną krawędź ścian,
+co usuwa prześwity. Sufity są widoczne w FPP, ukryte w ISO i dzielone według
+aktywnego elevation.
 
 ## Czego nie da się odzyskać automatycznie 1:1
 
@@ -77,8 +83,7 @@ zastąpi danych `MAP`/`PRO`/`FRM`.
 
 ## Następny etap
 
-Następny krok to poprawa mapowania źródłowych klatek PNG bez rozciągania
-izometrycznego sprite'a oraz płynne odtwarzanie pośrednich klatek drzwi.
-Pierwszy wersjonowany profil `temple_stone` korzysta już z koloru policzonego z
-`temple19.frm`; kolejne parametry powinny być definiowane dla rodzin assetów,
+Po akceptacji bieżącego wyglądu jednej lokacji następnym krokiem będzie
+płynne odtwarzanie pośrednich klatek drzwi oraz pierwsza reprezentacja ruchomego
+crittera. Profile materiałów nadal powinny być definiowane dla rodzin assetów,
 nie osobno dla map. Wygenerowane tekstury pozostają w ignorowanym `artifacts/`.

@@ -75,17 +75,21 @@ silnika i Godota.
 
 ### `object_state`
 
-Emitowany z callbacka animacji drzwi po zmianie ich flagi otwarcia. Zawiera tę
-samą tożsamość celu oraz `state.kind = "door"`, `open`, `locked`, `jammed` i
-`blocks_movement`. Godot obraca otwarte debugowe drzwi, zmienia ich kolor i
-wyłącza collider przypisany do ich `instance_id`.
+Emitowany w dwóch trybach. Bezpośrednio po `map_loaded` bridge wysyła pełny stan
+każdych zarejestrowanych drzwi z `snapshot = true`. Dzięki temu wczytanie
+starszego save'a przywraca w Godocie drzwi zamknięte, zamiast pozostawiać stan z
+poprzedniej sesji. Callback animacji nadal emituje zmianę z `snapshot = false`.
+Rekord zawiera tę samą tożsamość celu oraz `state.kind = "door"`, `open`,
+`locked`, `jammed` i `blocks_movement`. Godot aktualizuje grafikę i collider;
+snapshot nie zaznacza drzwi jako użytych ani nie zmienia selekcji gracza.
 
 ## Zweryfikowane własności
 
 - pełny build Release x64 przechodzi bez błędów;
 - patch stosuje się czysto do przypiętego commita w świeżym worktree;
 - test kontraktu kompiluje prawdziwy `fpp_bridge.cc` i sprawdza kolejność oraz
-  treść pięciu zdarzeń, w tym otwarcie drzwi;
+  treść sześciu zdarzeń, w tym początkowy snapshot zamkniętych drzwi i późniejszą
+  deltę otwarcia;
 - niezmieniony stan gracza nie tworzy drugiego `player_moved`;
 - nazwy map są escapowane jako JSON;
 - interakcja zachowuje `instance_id`, `object_id`, PID, heks, elevation,
@@ -101,15 +105,14 @@ obserwator i pokazuje zgodność w HUD. Flaga `--bridge-live` wyłącza lokalny 
 i odtwarza ostatni zapisany stan CE przed śledzeniem nowych zdarzeń, dzięki
 czemu okno Godota można bezpiecznie uruchomić ponownie w trakcie sesji.
 Następnie stosuje stan CE do wspólnego gracza oraz obiektów. Test `--bridge-probe`
-potwierdza `map_loaded`, `player_moved`, `interaction`, `object_state`,
-przyrostowe dopisywanie, buforowanie przeciętego rekordu JSONL i zachowanie
-stanu podczas ISO/FPP. Wariant na `ARCAVES` dodatkowo potwierdza otwarte drzwi i
-wyłączony collider.
+potwierdza `map_loaded`, początkowy snapshot drzwi, `player_moved`, `interaction`,
+deltę `object_state`, przyrostowe dopisywanie, buforowanie przeciętego rekordu
+JSONL i zachowanie stanu podczas ISO/FPP. Wariant na `ARCAVES` potwierdza stan
+zamknięty po snapshotcie, klatkę otwarcia i wyłączony collider po delcie.
 
-Następny krok to test dwóch prawdziwych procesów: uruchomić najpierw Godota z
-`--bridge-live`, potem instrumentowany `fallout2-ce`, rozpocząć nową grę,
-wykonać jeden ruch i jedną interakcję. Dowód musi zestawić dokładnie te same
-heks/elevation/rotację i `instance_id` po obu stronach.
+Po akceptacji pionowego wycinka ten sam model „snapshot + delty” należy
+rozszerzyć na ruchome crittery i zmiany położenia scenerii. Do tego czasu CE
+pozostaje jedynym właścicielem logiki, a Godot nie tworzy niezależnego save'a.
 
 W trybie live Godot nadpisuje po każdym odebranym zdarzeniu maszynowy snapshot
 `artifacts/godot-bridge-live-runtime.json`. Pozwala to porównać zastosowany stan

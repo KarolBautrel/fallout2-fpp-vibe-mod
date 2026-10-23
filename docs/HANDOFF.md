@@ -77,10 +77,12 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
   ręcznego uruchamiania na następnej mapie.
 - `ARCAVES` renderuje podłogi elevation 0/1/2 zamiast samych obiektów z wyższych
   poziomów; domyślny pusty tile `1` nie tworzy debugowego bloku;
-- bridge emituje `object_state` po zmianie stanu drzwi. Godot odwzorowuje
-  `open`/`locked`/`jammed`, obraca otwarte drzwi i wyłącza ich collider;
-- probe `--bridge-probe --map=arcaves` potwierdza 5 zdarzeń, otwarte drzwi i
-  `door_collision_disabled = true`.
+- bridge emituje pełny snapshot wszystkich drzwi po `map_loaded`, a następnie
+  delty `object_state` po zmianie stanu. Wczytanie starszego save'a przywraca
+  zamknięte drzwi, grafikę oraz collider zamiast pozostawiać stan z poprzedniej
+  sesji;
+- probe `--bridge-probe --map=arcaves` potwierdza 6 zdarzeń, zamknięte drzwi po
+  snapshotcie, klatkę `18` po delcie otwarcia i `door_collision_disabled = true`.
 - renderer buduje wspólną siatkę topologii ścian z zajętych heksów zamiast
   osobnych prostokątów oraz pokazuje wyłącznie elevation bieżącej postaci;
 - eksporter rozwiązuje teraz `FID -> art/<typ>/<typ>.lst -> FRM` zgodnie z
@@ -92,21 +94,22 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
 - parser dekoduje `color.pal`, przezroczystość oraz klatki FRM do PNG;
   `scene-art-cache` utworzył dla ARCAVES 126 unikalnych assetów zamiast
   przetwarzać 3038 instancji ścian/scenerii osobno;
-- gdy `roof_ids` są puste, Godot wykrywa zamknięte regiony flood-fillem i
-  tworzy proceduralne sufity wraz z krawędzią nad ścianami: 1697 komórek/4
-  regiony dla ARTEMPLE oraz 5486 komórek/8 regionów dla trzech elevation
-  ARCAVES. Sufity są widoczne
-  w FPP i ukryte w ISO;
+- gdy `roof_ids` są puste, Godot automatycznie wybiera strategię sufitu:
+  ARTEMPLE nadal używa flood-fillu zamkniętych regionów (1697 komórek/4
+  regiony), a gęste wnętrze ARCAVES pokrywa pełny footprint niepustej podłogi
+  (13 361 komórek na trzech elevation). Płyty zachodzą na ściany, więc nie ma
+  prześwitów; sufit jest widoczny w FPP i ukryty w ISO;
 - wersjonowany profil `temple_stone` pokrywa 1580 ścian ARCAVES kolorem
   obliczonym z `temple19.frm`; pozostałe ściany pobierają kolor automatycznie
   ze swojego źródłowego FRM.
-- Godot nakłada pierwszą klatkę cache'owanego FRM na odsłonięte powierzchnie
-  ścian: 184 powierzchnie ARTEMPLE oraz 7166 powierzchni ARCAVES. Alpha-scissor
-  eliminuje błędy sortowania przezroczystych paneli.
+- bezpośrednia projekcja FRM na ściany została odrzucona po teście wizualnym,
+  ponieważ tworzyła nachodzące na siebie pionowe karty. Ściany korzystają teraz
+  z jednej siatki topologii i antyaliasowanego proceduralnego materiału kamienia;
+  FRM przekazuje paletę i profil rodziny, ale nie jest rozciągany na powierzchni;
 - cztery drzwi ARCAVES mają źródłowe panele FRM; probe potwierdza przejście na
   klatkę `18` po stanie `open`, równolegle z wyłączeniem collidera;
 - okienkowy benchmark ARCAVES/FPP po rozgrzaniu osiągnął średnio `59,95 FPS`
-  przez 180 klatek przy 7166 panelach ścian i 5486 komórkach sufitu. Dowód:
+  przez 180 klatek przy 29 674 trójkątach ścian i 13 361 komórkach sufitu. Dowód:
   `artifacts/godot-render-performance.json`.
 
 Na prawdziwym `master.dat` znaleziono 23 140 wpisów i 155 map. Dla
@@ -174,8 +177,9 @@ logiczny zachowuje indeks heksa; kamery tylko go obserwują.
   klatek fizyki;
 - `godot-blocking-runtime.json` — rzeczywisty test kolizji ze ścianą;
 - `godot-interaction-runtime.json` — ten sam cel i wynik interakcji w ISO/FPP;
-- `godot-bridge-runtime.json` — odbiór pięciu zdarzeń CE, przyrostowy JSONL,
-  zastosowanie heksa/rotacji i wspólnego `instance_id`;
+- `godot-bridge-runtime.json` — odbiór sześciu zdarzeń CE, przyrostowy JSONL,
+  snapshot zamkniętych drzwi, deltę otwarcia, zastosowanie heksa/rotacji i
+  wspólnego `instance_id`;
 - `artemple.scene-v1.objects.json` i `klamall.scene-v1.objects.json` —
   dowody pełnego odczytu obiektów z danych użytkownika;
 - `godot-preview00000002.png` — widok ISO;
@@ -197,21 +201,21 @@ Lokalny, instrumentowany `fallout2-ce` emituje już read-only JSONL ze
 zdarzeniami `map_loaded`, `player_moved`, `interaction` oraz `object_state`.
 Nakładka, skrypty
 odtworzenia i test kontraktu są opisane w `docs/STATE_BRIDGE.md`. Pełny build
-Release x64 i test pięciu zdarzeń przechodzą.
+Release x64 i test sześciu zdarzeń przechodzą.
 
 Godot ma już odbiornik JSONL. Domyślnie obserwuje trace i raportuje zgodność w
 HUD, a `--bridge-live` czyni CE autorytetem, wyłącza lokalny ruch i stosuje
-`map_loaded`, `player_moved`, udane `interaction` i stan drzwi. Headless probe potwierdza
-cztery zdarzenia, przyrostowe dopisywanie, buforowanie niepełnej linii,
-przejście z heksa `18492` na `18491`, rotację `2` i aktywację `instance_id = 0`
-/ `object_id = 16`.
+`map_loaded`, snapshot drzwi, `player_moved`, udane `interaction` i późniejsze
+delty stanu. Probe ARCAVES potwierdza sześć zdarzeń, przyrostowe dopisywanie,
+buforowanie niepełnej linii, reset zamkniętych drzwi i późniejsze otwarcie.
 
 Test end-to-end dwóch prawdziwych procesów został wykonany, stan drzwi jest
 odwzorowany w debugowej geometrii i kolizji, a ściany mają automatyczną siatkę
-topologii rozdzieloną na elevation. Dekodowanie palety/FRM, cache PNG, sufity,
-pierwszy profil `temple_stone`, pierwsza projekcja FRM i krańcowe klatki drzwi
-są gotowe. Następny krok to poprawa UV/proporcji grafiki źródłowej oraz płynne
-odtwarzanie klatek drzwi. Nie należy
+topologii rozdzieloną na elevation. Bezpośrednia projekcja FRM została odrzucona;
+obecny materiał zachowuje paletę źródłową bez izometrycznych kart, a sufit
+ARCAVES nie ma szczelin. Następny krok po teście użytkownika to płynne
+odtwarzanie klatek drzwi, a potem pierwszy ruchomy critter z tym samym modelem
+snapshot + delty. Nie należy
 jeszcze hookować ani modyfikować retailowego EXE.
 
 Podczas pierwszego testu starszy launcher ustawił instalację Steam jako katalog

@@ -48,6 +48,8 @@ int main(int argc, char** argv)
     player.rotation = 2;
     fppBridgePollPlayer(&player);
     fppBridgeEmitInteraction(&player, &target, 0);
+    target.data.scenery.door.openFlags = 0x01;
+    fppBridgeEmitDoorState(&target);
 
     return 0;
 }

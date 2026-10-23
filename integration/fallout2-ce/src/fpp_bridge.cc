@@ -199,4 +199,26 @@ void fppBridgeEmitInteraction(const Object* actor, const Object* target, int res
     fflush(stream);
 }
 
+void fppBridgeEmitDoorState(const Object* door)
+{
+    FILE* stream = fppBridgeGetStream();
+    if (stream == nullptr || door == nullptr) {
+        return;
+    }
+
+    int openFlags = door->data.scenery.door.openFlags;
+    bool isOpen = (openFlags & 0x01) != 0;
+    fprintf(stream,
+        "{\"schema\":\"fo2remix.bridge-v1\",\"sequence\":%llu,\"event\":\"object_state\",\"target\":",
+        gFppBridgeSequence++);
+    fppBridgeWriteObjectState(stream, door, true);
+    fprintf(stream,
+        ",\"state\":{\"kind\":\"door\",\"open\":%s,\"locked\":%s,\"jammed\":%s,\"blocks_movement\":%s}}\n",
+        isOpen ? "true" : "false",
+        (openFlags & DOOR_FLAG_LOCKED) != 0 ? "true" : "false",
+        (openFlags & DOOR_FLAG_JAMMGED) != 0 ? "true" : "false",
+        isOpen ? "false" : "true");
+    fflush(stream);
+}
+
 } // namespace fallout

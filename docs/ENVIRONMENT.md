@@ -60,23 +60,29 @@ Lokalny checkout ma obecnie nałożony wersjonowany bridge z
 się bez błędów. Aktualna binarka ma SHA-256:
 
 ```text
-31F316049EC6B82B4B3B78FC7999474F6C1C6F5679DC1FA25B67890F9519940C
+651A0AEF2E7B1CAD8D3790C15AC3B08BFA69F56733D19B867230229EE59F594A
 ```
 
 Instrukcje odtworzenia i testu: `docs/STATE_BRIDGE.md`.
 
 ## Uruchomienie referencyjne
 
-Niezmienione `fallout2-ce` uruchomiono z katalogiem roboczym ustawionym na
-instalację Steam. Po 15 sekundach proces odpowiadał i miał okno `FALLOUT II`.
-Instalacja Steam pozostaje źródłem tylko do odczytu; binarka i generowane pliki
-są w ignorowanym checkoutcie `engine/fallout2-ce`.
+Instrumentowane `fallout2-ce` czyta archiwa z instalacji Steam, lecz launcher
+ustawia zapisywalny katalog roboczy i oba katalogi patches na
+`artifacts/fallout2-ce-runtime`. Dzięki temu mapowe `.SAV`, `worldmap.dat` i
+pozostały stan sesji nie są zapisywane do instalacji Steam. Launcher kopiuje
+zbudowaną przez nas binarkę z ignorowanego checkoutu `engine/fallout2-ce` do
+runtime; nie kopiuje żadnego archiwum ani assetu gry.
 
 ## Prototyp Godot
 
-Projekt znajduje się w `godot/` i działa na Godot 4.7. Wczytuje ignorowany
-`artifacts/artemple.scene-v1.json`, generuje 10 000 komórek debugowej podłogi
-oraz wspólny stan gracza z kamerami ISO i FPP.
+Projekt znajduje się w `godot/` i działa na Godot 4.7. Domyślnie wczytuje
+ignorowany `artifacts/artemple.scene-v1.json`; argument `--map=arcaves` wybiera
+`artifacts/arcaves.scene-v1.json`. Generuje wszystkie niepuste komórki podłogi
+na każdym wyeksportowanym elevation oraz wspólny stan gracza z kamerami ISO i
+FPP. W trybie bridge zdarzenie
+`map_loaded` automatycznie przełącza aktywną geometrię między tymi dwiema
+mapami.
 
 Walidacja headless:
 

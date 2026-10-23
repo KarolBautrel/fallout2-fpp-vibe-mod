@@ -40,8 +40,11 @@ $alreadyApplied = (Test-Path -LiteralPath $targetSource) `
     -and (Select-String -LiteralPath $cmakeFile -SimpleMatch 'src/fpp_bridge.cc' -Quiet) `
     -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\main.cc') -SimpleMatch 'fppBridgePollPlayer(gDude)' -Quiet) `
     -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\map.cc') -SimpleMatch 'fppBridgeEmitMapLoaded' -Quiet) `
+    -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\map.cc') -SimpleMatch 'char temp[COMPAT_MAX_PATH]' -Quiet) `
+    -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\map.cc') -SimpleMatch 'snprintf(temp, sizeof(temp), "%s\\MAPS"' -Quiet) `
     -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\object.cc') -SimpleMatch 'fppBridgeRegisterMapObject' -Quiet) `
-    -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\proto_instance.cc') -SimpleMatch 'fppBridgeEmitInteraction' -Quiet)
+    -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\proto_instance.cc') -SimpleMatch 'fppBridgeEmitInteraction' -Quiet) `
+    -and (Select-String -LiteralPath (Join-Path $EnginePath 'src\proto_instance.cc') -SimpleMatch 'fppBridgeEmitDoorState(door)' -Quiet)
 
 if ($alreadyApplied) {
     if ((Get-FileHash -LiteralPath $targetSource).Hash -ne (Get-FileHash -LiteralPath $bridgeSource).Hash `
@@ -52,7 +55,7 @@ if ($alreadyApplied) {
     exit 0
 }
 
-& git -C $EnginePath apply --check $patchPath
+& git -C $EnginePath apply --check --unidiff-zero $patchPath
 if ($LASTEXITCODE -ne 0) {
     throw 'The bridge hook patch does not apply cleanly.'
 }
@@ -62,7 +65,7 @@ if ($CheckOnly) {
     exit 0
 }
 
-& git -C $EnginePath apply $patchPath
+& git -C $EnginePath apply --unidiff-zero $patchPath
 if ($LASTEXITCODE -ne 0) {
     throw 'Unable to apply the bridge hook patch.'
 }

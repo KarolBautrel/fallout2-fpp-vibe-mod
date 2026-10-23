@@ -4,7 +4,11 @@ const Coordinates = preload("res://scripts/fallout_coordinate_space.gd")
 const PlayerController = preload("res://scripts/fallout_player_controller.gd")
 const StateBridge = preload("res://scripts/fallout_state_bridge.gd")
 
-const SCENE_PATH := "res://../artifacts/artemple.scene-v1.json"
+const DEFAULT_MAP_KEY := "artemple"
+const SCENE_PATHS := {
+	"artemple": "res://../artifacts/artemple.scene-v1.json",
+	"arcaves": "res://../artifacts/arcaves.scene-v1.json",
+}
 const EVIDENCE_PATH := "res://../artifacts/godot-iso-fpp-contract.json"
 const MOVEMENT_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-movement-runtime.json"
 const BLOCKING_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-blocking-runtime.json"
@@ -12,6 +16,7 @@ const INTERACTION_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-interaction
 const BRIDGE_TRACE_PATH := "res://../artifacts/fallout2-ce-state.jsonl"
 const BRIDGE_PROBE_TRACE_PATH := "res://../artifacts/godot-bridge-probe-input.jsonl"
 const BRIDGE_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-bridge-runtime.json"
+const BRIDGE_LIVE_EVIDENCE_PATH := "res://../artifacts/godot-bridge-live-runtime.json"
 const FALLOUT2_CE_COMMIT := "e97087b9582f37075db347a89898887320753f8b"
 
 const FLOOR_CELL_COUNT := 100 * 100
@@ -25,6 +30,7 @@ const CAMERA_FPP := "FPP"
 
 var scene_data: Dictionary
 var active_camera_mode := CAMERA_FPP
+var map_geometry_root: Node3D
 var floor_instances: MultiMeshInstance3D
 var debug_object_counts := {"wall": 0, "door": 0, "scenery": 0}
 var blocking_collision_count := 0
@@ -32,6 +38,7 @@ var object_records_by_instance_id := {}
 var object_states := {}
 var object_visuals := {}
 var object_instance_colors := {}
+var object_collision_shapes := {}
 var interaction_status := "No object selected"
 var player
 var iso_camera: Camera3D
@@ -45,6 +52,11 @@ var bridge_transport_status := "OFF"
 var bridge_parity_status := "No CE state received"
 var bridge_events_observed := 0
 var bridge_events_applied := 0
+var bridge_map_supported := true
+var bridge_map_name := ""
+var loaded_scene_path := ""
+var last_bridge_interaction := {}
+var last_bridge_object_state := {}
 
 
 func _ready() -> void:
@@ -53,6 +65,7 @@ func _ready() -> void:
 		return
 
 	_create_environment()
+	_create_map_geometry_root()
 	_create_floor_grid()
 	_create_ground_collision()
 	_create_map_object_debug_geometry()
@@ -87,19 +100,24 @@ func _process(delta: float) -> void:
 
 
 func _load_scene_data() -> void:
-	var absolute_path := ProjectSettings.globalize_path(SCENE_PATH)
+	if not _load_scene_data_from_path(_requested_scene_path()):
+		get_tree().quit(2)
+
+
+func _load_scene_data_from_path(path: String) -> bool:
+	var absolute_path := ProjectSettings.globalize_path(path)
 	var file := FileAccess.open(absolute_path, FileAccess.READ)
 	if file == null:
 		push_error("Missing scene JSON: %s" % absolute_path)
-		get_tree().quit(2)
-		return
+		return false
 
 	var parsed: Variant = JSON.parse_string(file.get_as_text())
 	if not parsed is Dictionary or parsed.get("schema", "") != "fo2remix.scene-v1":
 		push_error("Unsupported or invalid scene JSON: %s" % absolute_path)
-		get_tree().quit(3)
-		return
+		return false
 	scene_data = parsed
+	loaded_scene_path = path
+	return true
 
 
 func _create_environment() -> void:
@@ -122,15 +140,27 @@ func _create_environment() -> void:
 	add_child(sun)
 
 
+func _create_map_geometry_root() -> void:
+	map_geometry_root = Node3D.new()
+	map_geometry_root.name = "ActiveMapGeometry"
+	add_child(map_geometry_root)
+
+
 func _create_floor_grid() -> void:
 	var tile_grid: Dictionary = scene_data["tile_grid"]
 	assert(int(tile_grid["width"]) == Coordinates.FLOOR_GRID_WIDTH)
 	assert(int(tile_grid["height"]) == Coordinates.FLOOR_GRID_HEIGHT)
 	var layers: Array = tile_grid["layers"]
 	assert(not layers.is_empty())
-	var layer: Dictionary = layers[0]
-	var floor_ids: Array = layer["floor_ids"]
-	assert(floor_ids.size() == FLOOR_CELL_COUNT)
+	var rendered_cell_count := 0
+	for layer_value in layers:
+		var layer: Dictionary = layer_value
+		var floor_ids: Array = layer["floor_ids"]
+		assert(floor_ids.size() == FLOOR_CELL_COUNT)
+		for floor_id in floor_ids:
+			if int(floor_id) != 1:
+				rendered_cell_count += 1
+	assert(rendered_cell_count > 0)
 
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
@@ -144,42 +174,54 @@ func _create_floor_grid() -> void:
 	multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
 	multi_mesh.use_colors = true
 	multi_mesh.mesh = cell_mesh
-	multi_mesh.instance_count = FLOOR_CELL_COUNT
+	multi_mesh.instance_count = rendered_cell_count
 
 	var column_axis := Vector3(1.5, 0.0, -Coordinates.SQRT_3_OVER_2) * 0.992
 	var row_axis := Vector3(1.0, 0.0, 2.0 * Coordinates.SQRT_3_OVER_2) * 0.992
 	var cell_basis := Basis(column_axis, Vector3(0.0, FLOOR_THICKNESS, 0.0), row_axis)
 
-	for tile_index in FLOOR_CELL_COUNT:
-		var column := Coordinates.FLOOR_GRID_WIDTH - 1 - (
-			tile_index % Coordinates.FLOOR_GRID_WIDTH
-		)
-		var row := int(tile_index / Coordinates.FLOOR_GRID_WIDTH)
-		var origin := Coordinates.square_grid_to_world(
-			column,
-			row,
-			int(layer["elevation"])
-		)
-		origin.y -= FLOOR_THICKNESS * 0.5
-		multi_mesh.set_instance_transform(tile_index, Transform3D(cell_basis, origin))
-		multi_mesh.set_instance_color(tile_index, _debug_floor_color(int(floor_ids[tile_index])))
+	var instance_index := 0
+	for layer_value in layers:
+		var layer: Dictionary = layer_value
+		var floor_ids: Array = layer["floor_ids"]
+		for tile_index in FLOOR_CELL_COUNT:
+			var floor_id := int(floor_ids[tile_index])
+			if floor_id == 1:
+				continue
+			var column := Coordinates.FLOOR_GRID_WIDTH - 1 - (
+				tile_index % Coordinates.FLOOR_GRID_WIDTH
+			)
+			var row := int(tile_index / Coordinates.FLOOR_GRID_WIDTH)
+			var origin := Coordinates.square_grid_to_world(
+				column,
+				row,
+				int(layer["elevation"])
+			)
+			origin.y -= FLOOR_THICKNESS * 0.5
+			multi_mesh.set_instance_transform(instance_index, Transform3D(cell_basis, origin))
+			multi_mesh.set_instance_color(instance_index, _debug_floor_color(floor_id))
+			instance_index += 1
 
 	floor_instances = MultiMeshInstance3D.new()
 	floor_instances.name = "FloorGrid100x100"
 	floor_instances.multimesh = multi_mesh
-	add_child(floor_instances)
+	map_geometry_root.add_child(floor_instances)
 
 
 func _create_ground_collision() -> void:
 	var ground := StaticBody3D.new()
 	ground.name = "DebugGroundCollision"
-	var collision := CollisionShape3D.new()
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(600.0, 0.2, 600.0)
-	collision.shape = shape
-	collision.position.y = -0.1
-	ground.add_child(collision)
-	add_child(ground)
+	for layer_value in scene_data["tile_grid"]["layers"]:
+		var layer: Dictionary = layer_value
+		var collision := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = Vector3(600.0, 0.2, 600.0)
+		collision.shape = shape
+		collision.position.y = (
+			float(layer["elevation"]) * Coordinates.ELEVATION_HEIGHT - 0.1
+		)
+		ground.add_child(collision)
+	map_geometry_root.add_child(ground)
 
 
 func _create_map_object_debug_geometry() -> void:
@@ -193,7 +235,14 @@ func _create_map_object_debug_geometry() -> void:
 		var instance_id := int(record["instance_id"])
 		object_records_by_instance_id[instance_id] = record
 		if _is_interactable_record(record):
-			object_states[instance_id] = {"activated": false}
+			var state := {"activated": false}
+			if String(record.get("kind", "")) == "door":
+				var door: Dictionary = record.get("door", {})
+				state["open"] = bool(door.get("open", false))
+				state["locked"] = bool(door.get("locked", false))
+				state["jammed"] = bool(door.get("jammed", false))
+				state["blocks_movement"] = not bool(state["open"])
+			object_states[instance_id] = state
 		match String(record.get("kind", "")):
 			"wall":
 				walls.append(record)
@@ -245,15 +294,20 @@ func _create_object_instances(
 		var basis := Basis(Vector3.UP, yaw).scaled(size)
 		var position := Coordinates.hex_index_to_world(tile, elevation)
 		position.y += size.y * 0.5
-		multi_mesh.set_instance_transform(index, Transform3D(basis, position))
+		var base_transform := Transform3D(basis, position)
+		multi_mesh.set_instance_transform(index, base_transform)
 		multi_mesh.set_instance_color(index, color)
-		object_visuals[instance_id] = {"multi_mesh": multi_mesh, "index": index}
+		object_visuals[instance_id] = {
+			"multi_mesh": multi_mesh,
+			"index": index,
+			"base_transform": base_transform,
+		}
 		object_instance_colors[instance_id] = color
 
 	var instances := MultiMeshInstance3D.new()
 	instances.name = node_name
 	instances.multimesh = multi_mesh
-	add_child(instances)
+	map_geometry_root.add_child(instances)
 
 
 func _create_map_blocking_collisions() -> void:
@@ -278,8 +332,15 @@ func _create_map_blocking_collisions() -> void:
 		collision.set_meta("hex_index", int(record["hex_index"]))
 		collision.set_meta("elevation", int(record["elevation"]))
 		body.add_child(collision)
-	add_child(body)
+		for instance_id_value in record.get("instance_ids", []):
+			var instance_id := int(instance_id_value)
+			if not object_collision_shapes.has(instance_id):
+				object_collision_shapes[instance_id] = []
+			object_collision_shapes[instance_id].append(collision)
+	map_geometry_root.add_child(body)
 	blocking_collision_count = records.size()
+	for instance_id in object_collision_shapes:
+		_refresh_object_collisions(int(instance_id))
 
 
 func _debug_floor_color(floor_id: int) -> Color:
@@ -288,6 +349,16 @@ func _debug_floor_color(floor_id: int) -> Color:
 	var hue := fmod(0.24 + float(floor_id % 17) * 0.006, 1.0)
 	var value := 0.31 + float(floor_id % 5) * 0.025
 	return Color.from_hsv(hue, 0.18, value, 1.0)
+
+
+func _count_rendered_floor_cells() -> int:
+	var count := 0
+	for layer_value in scene_data["tile_grid"]["layers"]:
+		var layer: Dictionary = layer_value
+		for floor_id in layer["floor_ids"]:
+			if int(floor_id) != 1:
+				count += 1
+	return count
 
 
 func _create_player() -> void:
@@ -413,7 +484,9 @@ func _set_camera_mode(mode: String) -> void:
 	crosshair.visible = mode == CAMERA_FPP
 	if DisplayServer.get_name() != "headless":
 		Input.mouse_mode = (
-			Input.MOUSE_MODE_CAPTURED if mode == CAMERA_FPP else Input.MOUSE_MODE_VISIBLE
+			Input.MOUSE_MODE_CAPTURED
+			if mode == CAMERA_FPP and not bridge_authoritative
+			else Input.MOUSE_MODE_VISIBLE
 		)
 	_update_hud()
 
@@ -444,7 +517,7 @@ func _create_state_bridge() -> void:
 	)
 	player.movement_enabled = not bridge_authoritative
 	var path := BRIDGE_PROBE_TRACE_PATH if _has_user_argument("--bridge-probe") else BRIDGE_TRACE_PATH
-	state_bridge.configure(path, _has_user_argument("--bridge-probe"))
+	state_bridge.configure(path, bridge_authoritative)
 	bridge_transport_status = state_bridge.status
 
 
@@ -470,10 +543,14 @@ func _on_bridge_event(event: Dictionary) -> void:
 			_handle_bridge_player_moved(event)
 		"interaction":
 			_handle_bridge_interaction(event)
+		"object_state":
+			_handle_bridge_object_state(event)
 		_:
 			bridge_parity_status = "Ignored CE event: %s" % event_name
 	_update_cameras()
 	_update_hud()
+	if bridge_authoritative and not _has_user_argument("--bridge-probe"):
+		_write_bridge_live_evidence(event)
 
 
 func _handle_bridge_map_loaded(event: Dictionary) -> void:
@@ -482,19 +559,71 @@ func _handle_bridge_map_loaded(event: Dictionary) -> void:
 		return
 	var map_state: Dictionary = event["map"]
 	var player_state: Dictionary = event["player"]
-	var expected_map: Dictionary = scene_data["map"]
-	if String(map_state.get("name", "")).to_upper() != String(expected_map["name"]).to_upper():
-		bridge_parity_status = "MAP MISMATCH: %s" % map_state.get("name", "")
-		return
-	if int(map_state.get("index", -1)) != int(expected_map["index"]):
-		bridge_parity_status = "MAP INDEX MISMATCH: %s" % map_state.get("index", -1)
+	bridge_map_name = String(map_state.get("name", ""))
+	bridge_map_supported = _activate_scene_for_bridge_map(map_state)
+	if not bridge_map_supported:
+		var expected_map: Dictionary = scene_data["map"]
+		player.set_selection(-1)
+		interaction_status = "CE is on unsupported map %s; loaded scene is %s" % [
+			bridge_map_name,
+			expected_map["name"],
+		]
+		bridge_parity_status = "UNSUPPORTED MAP: %s (index %s)" % [
+			bridge_map_name,
+			map_state.get("index", -1),
+		]
 		return
 	_apply_or_compare_bridge_player(String(map_state["name"]), player_state, "map_loaded")
+
+
+func _activate_scene_for_bridge_map(map_state: Dictionary) -> bool:
+	var map_key := _map_stem(String(map_state.get("name", "")))
+	if not SCENE_PATHS.has(map_key):
+		return false
+
+	var expected_index := int(map_state.get("index", -1))
+	var current_map: Dictionary = scene_data["map"]
+	if (
+		_map_stem(String(current_map["name"])) == map_key
+		and int(current_map["index"]) == expected_index
+	):
+		return true
+
+	var next_path := String(SCENE_PATHS[map_key])
+	if not _load_scene_data_from_path(next_path):
+		return false
+	if int(scene_data["map"]["index"]) != expected_index:
+		return false
+
+	_rebuild_map_geometry()
+	interaction_status = "Loaded %s from CE map boundary" % scene_data["map"]["name"]
+	return true
+
+
+func _rebuild_map_geometry() -> void:
+	player.set_selection(-1)
+	for child in map_geometry_root.get_children():
+		child.free()
+	object_records_by_instance_id.clear()
+	object_states.clear()
+	object_visuals.clear()
+	object_instance_colors.clear()
+	object_collision_shapes.clear()
+	debug_object_counts = {"wall": 0, "door": 0, "scenery": 0}
+	blocking_collision_count = 0
+	floor_instances = null
+	_create_floor_grid()
+	_create_ground_collision()
+	_create_map_object_debug_geometry()
+	_create_map_blocking_collisions()
 
 
 func _handle_bridge_player_moved(event: Dictionary) -> void:
 	if not event.get("player", {}) is Dictionary:
 		bridge_parity_status = "Invalid player_moved payload"
+		return
+	if not bridge_map_supported:
+		bridge_parity_status = "IGNORED player_moved on unsupported map %s" % bridge_map_name
 		return
 	_apply_or_compare_bridge_player("", event["player"], "player_moved")
 
@@ -535,9 +664,24 @@ func _handle_bridge_interaction(event: Dictionary) -> void:
 	if not event.get("target", {}) is Dictionary:
 		bridge_parity_status = "Invalid interaction payload"
 		return
+	if not bridge_map_supported:
+		bridge_parity_status = "IGNORED interaction on unsupported map %s" % bridge_map_name
+		interaction_status = "Interaction belongs to %s, not loaded scene %s" % [
+			bridge_map_name,
+			scene_data["map"]["name"],
+		]
+		return
 	var target: Dictionary = event["target"]
 	var instance_id := int(target.get("instance_id", -1))
 	if not object_records_by_instance_id.has(instance_id):
+		last_bridge_interaction = {
+			"sequence": int(event["sequence"]),
+			"map_name": bridge_map_name,
+			"target": target.duplicate(true),
+			"result": int(event.get("result", -1)),
+			"identity_matches": false,
+			"activated": false,
+		}
 		bridge_parity_status = "UNKNOWN CE instance %d" % instance_id
 		return
 	var record: Dictionary = object_records_by_instance_id[instance_id]
@@ -548,6 +692,14 @@ func _handle_bridge_interaction(event: Dictionary) -> void:
 		and int(record["elevation"]) == int(target.get("elevation", -1))
 	)
 	if not identity_matches:
+		last_bridge_interaction = {
+			"sequence": int(event["sequence"]),
+			"map_name": bridge_map_name,
+			"target": target.duplicate(true),
+			"result": int(event.get("result", -1)),
+			"identity_matches": false,
+			"activated": false,
+		}
 		bridge_parity_status = "INTERACTION IDENTITY MISMATCH instance %d" % instance_id
 		return
 
@@ -562,6 +714,113 @@ func _handle_bridge_interaction(event: Dictionary) -> void:
 		]
 		bridge_events_applied += 1
 		_refresh_object_colors()
+	last_bridge_interaction = {
+		"sequence": int(event["sequence"]),
+		"map_name": bridge_map_name,
+		"target": target.duplicate(true),
+		"result": result,
+		"identity_matches": true,
+		"activated": bool(object_states.get(instance_id, {}).get("activated", false)),
+	}
+
+
+func _handle_bridge_object_state(event: Dictionary) -> void:
+	if (
+		not event.get("target", {}) is Dictionary
+		or not event.get("state", {}) is Dictionary
+	):
+		bridge_parity_status = "Invalid object_state payload"
+		return
+	if not bridge_map_supported:
+		bridge_parity_status = "IGNORED object_state on unsupported map %s" % bridge_map_name
+		return
+
+	var target: Dictionary = event["target"]
+	var state: Dictionary = event["state"]
+	var instance_id := int(target.get("instance_id", -1))
+	if not object_records_by_instance_id.has(instance_id):
+		bridge_parity_status = "UNKNOWN CE object_state instance %d" % instance_id
+		return
+	var record: Dictionary = object_records_by_instance_id[instance_id]
+	var identity_matches := (
+		int(record["object_id"]) == int(target.get("object_id", -1))
+		and int(record["pid"]) == int(target.get("pid", -1))
+		and int(record["hex_index"]) == int(target.get("hex_index", -1))
+		and int(record["elevation"]) == int(target.get("elevation", -1))
+	)
+	if not identity_matches or String(record.get("kind", "")) != String(state.get("kind", "")):
+		bridge_parity_status = "OBJECT STATE IDENTITY MISMATCH instance %d" % instance_id
+		return
+
+	if not object_states.has(instance_id):
+		object_states[instance_id] = {"activated": false}
+	var local_state: Dictionary = object_states[instance_id]
+	local_state["activated"] = true
+	local_state["open"] = bool(state.get("open", false))
+	local_state["locked"] = bool(state.get("locked", false))
+	local_state["jammed"] = bool(state.get("jammed", false))
+	local_state["blocks_movement"] = bool(state.get("blocks_movement", true))
+	player.set_selection(instance_id)
+	_refresh_object_colors()
+	_refresh_object_collisions(instance_id)
+	bridge_events_applied += 1
+	bridge_parity_status = "APPLIED door %d %s" % [
+		instance_id,
+		"OPEN" if bool(local_state["open"]) else "CLOSED",
+	]
+	interaction_status = "CE door instance %d: %s%s%s" % [
+		instance_id,
+		"OPEN" if bool(local_state["open"]) else "CLOSED",
+		" LOCKED" if bool(local_state["locked"]) else "",
+		" JAMMED" if bool(local_state["jammed"]) else "",
+	]
+	last_bridge_object_state = {
+		"sequence": int(event["sequence"]),
+		"map_name": bridge_map_name,
+		"target": target.duplicate(true),
+		"state": local_state.duplicate(true),
+		"identity_matches": true,
+	}
+
+
+func _write_bridge_live_evidence(event: Dictionary) -> void:
+	var target: Dictionary = event.get("target", {})
+	var target_instance_id := int(target.get("instance_id", -1))
+	var target_activated := false
+	if object_states.has(target_instance_id):
+		target_activated = bool(object_states[target_instance_id]["activated"])
+	var evidence := {
+		"schema": "fo2remix.godot-bridge-live-v1",
+		"fallout2_ce_commit": FALLOUT2_CE_COMMIT,
+		"bridge_schema": state_bridge.SCHEMA,
+		"last_sequence": int(event["sequence"]),
+		"last_event": String(event["event"]),
+		"events_observed": bridge_events_observed,
+		"events_applied": bridge_events_applied,
+		"bridge_status": bridge_transport_status,
+		"parity_status": bridge_parity_status,
+		"player_state": player.logical_state.duplicate(true),
+		"player_world": _vector_to_array(player.global_position),
+		"active_camera": active_camera_mode,
+		"local_movement_disabled": not player.movement_enabled,
+		"loaded_scene": scene_data["map"].duplicate(true),
+		"loaded_scene_path": loaded_scene_path,
+		"bridge_map_name": bridge_map_name,
+		"bridge_map_supported": bridge_map_supported,
+		"last_interaction": last_bridge_interaction.duplicate(true),
+		"last_object_state": last_bridge_object_state.duplicate(true),
+		"target_instance_id": target_instance_id,
+		"target_object_id": int(target.get("object_id", -1)),
+		"target_result": int(event.get("result", -1)),
+		"target_activated": target_activated,
+	}
+	var path := ProjectSettings.globalize_path(BRIDGE_LIVE_EVIDENCE_PATH)
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		push_error("Could not write live bridge evidence: %s" % path)
+		return
+	file.store_string(JSON.stringify(evidence, "  "))
+	file.close()
 
 
 func _interact_from_active_camera() -> void:
@@ -684,12 +943,39 @@ func _refresh_object_colors() -> void:
 	for instance_id in object_visuals:
 		var visual: Dictionary = object_visuals[instance_id]
 		var color: Color = object_instance_colors[instance_id]
-		if object_states.has(instance_id) and bool(object_states[instance_id]["activated"]):
+		var transform: Transform3D = visual["base_transform"]
+		if (
+			object_states.has(instance_id)
+			and bool(object_states[instance_id].get("open", false))
+		):
+			color = Color("56c271")
+			transform.basis = transform.basis.rotated(Vector3.UP, deg_to_rad(82.0))
+		elif object_states.has(instance_id) and bool(object_states[instance_id]["activated"]):
 			color = Color("f4d35e")
 		elif int(instance_id) == selected_id:
 			color = Color("5ee7f4")
 		var multi_mesh: MultiMesh = visual["multi_mesh"]
+		multi_mesh.set_instance_transform(int(visual["index"]), transform)
 		multi_mesh.set_instance_color(int(visual["index"]), color)
+
+
+func _refresh_object_collisions(instance_id: int) -> void:
+	for collision_value in object_collision_shapes.get(instance_id, []):
+		var collision: CollisionShape3D = collision_value
+		var should_block := false
+		for blocker_id_value in collision.get_meta("instance_ids", []):
+			var blocker_id := int(blocker_id_value)
+			if object_states.has(blocker_id):
+				if bool(object_states[blocker_id].get("blocks_movement", true)):
+					should_block = true
+					break
+			elif object_records_by_instance_id.has(blocker_id):
+				should_block = bool(
+					object_records_by_instance_id[blocker_id].get("blocks_movement", true)
+				)
+				if should_block:
+					break
+		collision.disabled = not should_block
 
 
 func _update_hud() -> void:
@@ -703,7 +989,7 @@ func _update_hud() -> void:
 		+ "walls %d  doors %d  scenery %d  blocking hexes %d  selected instance %d\n"
 		+ "bridge %s  authority %s  events %d/%d  %s\n"
 		+ "%s\n"
-		+ "Mouse: look/select   WASD: move/strafe   E: interact   SHIFT: sprint   TAB: ISO/FPP"
+		+ "%s   TAB: ISO/FPP"
 	) % [
 		state["map_name"],
 		active_camera_mode,
@@ -725,11 +1011,19 @@ func _update_hud() -> void:
 		bridge_events_applied,
 		bridge_parity_status,
 		interaction_status,
+		(
+			"Mouse FREE (CE authority; drag title bar to move window)"
+			if bridge_authoritative
+			else "Mouse %s   ESC: release   click view: capture" % (
+				"LOOK" if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else "FREE"
+			)
+		),
 	]
 
 
 func _run_contract_checks() -> void:
-	assert(floor_instances.multimesh.instance_count == FLOOR_CELL_COUNT)
+	assert(floor_instances.multimesh.instance_count == _count_rendered_floor_cells())
+	assert(floor_instances.multimesh.instance_count >= 2)
 	var object_section: Dictionary = scene_data["objects"]
 	var object_records: Array = object_section["records"]
 	assert(object_records.size() == int(object_section["exported_count"]))
@@ -753,15 +1047,20 @@ func _run_contract_checks() -> void:
 			float(exported_world[2])
 		)
 		assert(expected_world.distance_to(actual_world) < 0.00001)
-	assert(Coordinates.tile_index_to_grid(18492) == Vector2i(107, 92))
-	assert(int(player.logical_state["hex_index"]) == 18492)
+	var spawn: Dictionary = scene_data["spawn"]
+	var spawn_hex := int(spawn["hex_index"])
+	assert(Coordinates.tile_index_to_grid(spawn_hex) == Vector2i(
+		int(spawn["hex_column"]),
+		int(spawn["hex_row"])
+	))
+	assert(int(player.logical_state["hex_index"]) == spawn_hex)
 
-	var spawn_world := Coordinates.hex_index_to_world(18492)
+	var spawn_world := Coordinates.hex_index_to_world(spawn_hex, int(spawn["elevation"]))
 	assert(player.global_position.distance_to(spawn_world) < 0.00001)
 
-	var round_trip_tiles := [18492, 0, 199, 39800, 39999]
+	var round_trip_tiles := [spawn_hex, 0, 199, 39800, 39999]
 	for rotation in 6:
-		var neighbor := Coordinates.tile_in_direction(18492, rotation)
+		var neighbor := Coordinates.tile_in_direction(spawn_hex, rotation)
 		round_trip_tiles.append(neighbor)
 		var distance := spawn_world.distance_to(Coordinates.hex_index_to_world(neighbor))
 		assert(absf(distance - 1.0) < 0.00001, "Hex neighbor distance mismatch")
@@ -834,6 +1133,21 @@ func _requested_start_camera() -> String:
 	return CAMERA_FPP
 
 
+func _requested_scene_path() -> String:
+	for argument in OS.get_cmdline_user_args():
+		var normalized := argument.to_lower()
+		if normalized.begins_with("--map="):
+			var map_key := normalized.trim_prefix("--map=").get_basename()
+			if SCENE_PATHS.has(map_key):
+				return String(SCENE_PATHS[map_key])
+			push_warning("Unknown debug map '%s'; using %s" % [map_key, DEFAULT_MAP_KEY])
+	return String(SCENE_PATHS[DEFAULT_MAP_KEY])
+
+
+func _map_stem(map_name: String) -> String:
+	return map_name.to_lower().get_file().get_basename()
+
+
 func _has_user_argument(expected: String) -> bool:
 	for argument in OS.get_cmdline_user_args():
 		if argument.to_lower() == expected:
@@ -845,7 +1159,16 @@ func _run_bridge_probe() -> void:
 	var spawn: Dictionary = scene_data["spawn"]
 	var source_hex := int(spawn["hex_index"])
 	var moved_hex := Coordinates.tile_in_direction(source_hex, 0)
-	var target: Dictionary = scene_data["objects"]["records"][0]
+	var target: Dictionary = {}
+	for target_value in scene_data["objects"]["records"]:
+		var candidate: Dictionary = target_value
+		var candidate_id := int(candidate["instance_id"])
+		if not object_states.has(candidate_id):
+			continue
+		target = candidate
+		if String(candidate.get("kind", "")) == "door":
+			break
+	assert(not target.is_empty(), "Bridge probe needs an interactable target")
 	var target_instance_id := int(target["instance_id"])
 	assert(object_states.has(target_instance_id), "Bridge probe target is not interactable")
 
@@ -902,6 +1225,21 @@ func _run_bridge_probe() -> void:
 			"result": 0,
 		},
 	]
+	var tests_door_state := String(target.get("kind", "")) == "door"
+	if tests_door_state:
+		events.append({
+			"schema": "fo2remix.bridge-v1",
+			"sequence": 4,
+			"event": "object_state",
+			"target": events[3]["target"].duplicate(true),
+			"state": {
+				"kind": "door",
+				"open": true,
+				"locked": false,
+				"jammed": false,
+				"blocks_movement": false,
+			},
+		})
 
 	var trace_path := ProjectSettings.globalize_path(BRIDGE_PROBE_TRACE_PATH)
 	var trace_file := FileAccess.open(trace_path, FileAccess.WRITE)
@@ -927,17 +1265,25 @@ func _run_bridge_probe() -> void:
 	append_file.seek_end()
 	append_file.store_line(moved_line.substr(split_index))
 	append_file.store_line(JSON.stringify(events[3]))
+	if tests_door_state:
+		append_file.store_line(JSON.stringify(events[4]))
 	append_file.close()
 	state_bridge.poll_now()
 
-	assert(state_bridge.events_received == 4, "Godot did not consume all bridge events")
-	assert(bridge_events_observed == 4, "Main scene did not observe all bridge events")
-	assert(bridge_events_applied == 3, "Unexpected number of applied bridge events")
+	assert(state_bridge.events_received == events.size(), "Godot did not consume all bridge events")
+	assert(bridge_events_observed == events.size(), "Main scene did not observe all bridge events")
+	assert(bridge_events_applied == events.size() - 1, "Unexpected applied bridge events")
 	assert(int(player.logical_state["hex_index"]) == moved_hex)
 	assert(int(player.logical_state["elevation"]) == int(spawn["elevation"]))
 	assert(int(player.logical_state["rotation"]) == 2)
 	assert(int(player.logical_state["selection"]) == target_instance_id)
 	assert(bool(object_states[target_instance_id]["activated"]))
+	if tests_door_state:
+		assert(bool(object_states[target_instance_id]["open"]))
+		assert(not bool(object_states[target_instance_id]["blocks_movement"]))
+		for collision_value in object_collision_shapes.get(target_instance_id, []):
+			var collision: CollisionShape3D = collision_value
+			assert(collision.disabled, "Open CE door retained its Godot collision")
 	var expected_world := Coordinates.hex_index_to_world(moved_hex, int(spawn["elevation"]))
 	assert(player.global_position.distance_to(expected_world) < 0.00001)
 
@@ -960,6 +1306,12 @@ func _run_bridge_probe() -> void:
 		"target_instance_id": target_instance_id,
 		"target_object_id": int(target["object_id"]),
 		"interaction_activated": bool(object_states[target_instance_id]["activated"]),
+		"door_state_verified": tests_door_state,
+		"door_open": bool(object_states[target_instance_id].get("open", false)),
+		"door_collision_disabled": (
+			tests_door_state
+			and not bool(object_states[target_instance_id].get("blocks_movement", true))
+		),
 		"camera_round_trip_preserved_bridge_state": true,
 		"local_movement_disabled_under_ce_authority": not player.movement_enabled,
 		"incremental_tail_verified": true,

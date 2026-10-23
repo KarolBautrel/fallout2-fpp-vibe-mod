@@ -15,7 +15,7 @@ index ee67a0a..fbea857 100644
 +        fppBridgePollPlayer(gDude);
 +
 diff --git a/src/map.cc b/src/map.cc
-index e73109f..85366bd 100644
+index e73109f..e1cb913 100644
 --- a/src/map.cc
 +++ b/src/map.cc
 @@ -18,0 +19 @@
@@ -25,6 +25,16 @@ index e73109f..85366bd 100644
 +        fppBridgeEmitMapLoaded(gMapHeader.name, gMapHeader.index, gDude);
 +    }
 +
+@@ -1316,4 +1321,2 @@ static int _map_save()
+-    char temp[80];
+-    temp[0] = '\0';
+-
+-    strcat(temp, settings.system.master_patches_path.c_str());
++    char temp[COMPAT_MAX_PATH];
++    snprintf(temp, sizeof(temp), "%s", settings.system.master_patches_path.c_str());
+@@ -1322 +1325 @@ static int _map_save()
+-    strcat(temp, "\\MAPS");
++    snprintf(temp, sizeof(temp), "%s\\MAPS", settings.system.master_patches_path.c_str());
 diff --git a/src/object.cc b/src/object.cc
 index 20b7aef..ea77fc2 100644
 --- a/src/object.cc
@@ -57,3 +67,7 @@ index 02bb39d..4d6e1c7 100644
 +}
 +
 +static int objectUseImpl(Object* user, Object* targetObj)
+@@ -1614,0 +1627 @@ static int _set_door_state_open(Object* door, Object* obj2)
++    fppBridgeEmitDoorState(door);
+@@ -1621,0 +1635 @@ static int _set_door_state_closed(Object* door, Object* obj2)
++    fppBridgeEmitDoorState(door);

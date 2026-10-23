@@ -27,7 +27,7 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
 - sklonowany oraz przypięty niezmieniony `fallout2-ce`;
 - udany build Release x64;
 - udane uruchomienie na danych Steam z responsywnym oknem `FALLOUT II`;
-- minimalny renderer Godot z 10 000 komórek podłogi;
+- minimalny renderer Godot z niepustymi komórkami podłogi wszystkich elevation;
 - wspólny stan gracza na heksie `18492`;
 - działające przełączanie ISO/FPP bez zmiany stanu;
 - kamera FPP na wysokości oczu `1.68`, bez offsetu TPP.
@@ -55,6 +55,32 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
   zachowanie wyboru podczas przełączania kamery;
 - runtime probe potwierdzający ten sam `instance_id = 0`, źródłowe
   `object_id = 16` i identyczny wynik w ISO oraz FPP.
+- zakończony test dwóch prawdziwych procesów: ruch gracza i przejścia map
+  `ARTEMPLE`/`ARCAVES` z `fallout2-ce` są odbierane na żywo przez Godota;
+- eksport `ARCAVES.MAP` zawiera 4528 zadeklarowanych obiektów, 4 drzwi i 2821
+  blokowanych heksów; wybiera się go argumentem Godota `--map=arcaves`;
+- prawdziwa interakcja z drzwiami na `ARCAVES.SAV` została dopasowana po obu
+  stronach: `instance_id = 1338`, `object_id = 1482`, PID `33555366`, heks
+  `24308`, rezultat `0` i stan `activated = true`;
+- odbiornik rozpoznaje `.MAP` i `.SAV` jako tę samą mapę oraz ignoruje ruch i
+  interakcje z mapy innej niż załadowany `scene-v1`, zamiast nakładać je na
+  błędną geometrię;
+- launcher bridge'a używa zapisywalnego
+  `artifacts/fallout2-ce-runtime`, a instalację Steam traktuje jako źródło
+  archiwów tylko do odczytu.
+- crash przy pierwszym przejściu mapy został przypisany do upstreamowego
+  `char temp[80]` w `_map_save()` przy 94-znakowej ścieżce runtime; nakładka
+  używa teraz `COMPAT_MAX_PATH` i ograniczonych `snprintf`, a build Release i
+  test kontraktu przechodzą;
+- Godot automatycznie przebudowuje geometrię po `map_loaded` między
+  `ARTEMPLE` i `ARCAVES`, więc FPP śledzi postać od początku gry i nie wymaga
+  ręcznego uruchamiania na następnej mapie.
+- `ARCAVES` renderuje podłogi elevation 0/1/2 zamiast samych obiektów z wyższych
+  poziomów; domyślny pusty tile `1` nie tworzy debugowego bloku;
+- bridge emituje `object_state` po zmianie stanu drzwi. Godot odwzorowuje
+  `open`/`locked`/`jammed`, obraca otwarte drzwi i wyłącza ich collider;
+- probe `--bridge-probe --map=arcaves` potwierdza 5 zdarzeń, otwarte drzwi i
+  `door_collision_disabled = true`.
 
 Na prawdziwym `master.dat` znaleziono 23 140 wpisów i 155 map. Dla
 `ARTEMPLE.MAP` eksport zawiera spawn na heksie `18492`, kolumnę `107`,
@@ -104,6 +130,11 @@ Sterowanie:
 - w ISO: lewy przycisk myszy wybiera blokującą scenerię;
 - w FPP: cel interakcji wskazuje środek ekranu.
 
+W trybie live, gdy autorytetem jest `fallout2-ce`, Godot nie przechwytuje myszy,
+bo orientacja pochodzi z CE. Okno ma jawną ramkę systemową i można je swobodnie
+przesuwać. W lokalnym trybie FPP `Esc` zwalnia kursor, a kliknięcie widoku
+ponownie włącza rozglądanie.
+
 Transformacja współrzędnych jest opisana w `docs/COORDINATES.md`. Stan
 logiczny zachowuje indeks heksa; kamery tylko go obserwują.
 
@@ -116,7 +147,7 @@ logiczny zachowuje indeks heksa; kamery tylko go obserwują.
   klatek fizyki;
 - `godot-blocking-runtime.json` — rzeczywisty test kolizji ze ścianą;
 - `godot-interaction-runtime.json` — ten sam cel i wynik interakcji w ISO/FPP;
-- `godot-bridge-runtime.json` — odbiór czterech zdarzeń CE, przyrostowy JSONL,
+- `godot-bridge-runtime.json` — odbiór pięciu zdarzeń CE, przyrostowy JSONL,
   zastosowanie heksa/rotacji i wspólnego `instance_id`;
 - `artemple.scene-v1.objects.json` i `klamall.scene-v1.objects.json` —
   dowody pełnego odczytu obiektów z danych użytkownika;
@@ -136,18 +167,25 @@ lokalnie. Analiza retailowego `fallout2.exe` potwierdziła względem źródeł
 Szczegóły i dowód odtworzenia są w `docs/REA_INTEGRATION.md`.
 
 Lokalny, instrumentowany `fallout2-ce` emituje już read-only JSONL ze
-zdarzeniami `map_loaded`, `player_moved` oraz `interaction`. Nakładka, skrypty
+zdarzeniami `map_loaded`, `player_moved`, `interaction` oraz `object_state`.
+Nakładka, skrypty
 odtworzenia i test kontraktu są opisane w `docs/STATE_BRIDGE.md`. Pełny build
-Release x64 i test czterech zdarzeń przechodzą.
+Release x64 i test pięciu zdarzeń przechodzą.
 
 Godot ma już odbiornik JSONL. Domyślnie obserwuje trace i raportuje zgodność w
 HUD, a `--bridge-live` czyni CE autorytetem, wyłącza lokalny ruch i stosuje
-`map_loaded`, `player_moved` oraz udane `interaction`. Headless probe potwierdza
+`map_loaded`, `player_moved`, udane `interaction` i stan drzwi. Headless probe potwierdza
 cztery zdarzenia, przyrostowe dopisywanie, buforowanie niepełnej linii,
 przejście z heksa `18492` na `18491`, rotację `2` i aktywację `instance_id = 0`
 / `object_id = 16`.
 
-Następny konkretny etap to test end-to-end dwóch prawdziwych procesów:
-`fallout2-ce` → plik JSONL → Godot `--bridge-live`, z jednym ruchem i jedną
-interakcją użytkownika. Nie należy jeszcze hookować ani modyfikować retailowego
-EXE.
+Test end-to-end dwóch prawdziwych procesów został wykonany, a stan drzwi jest
+już odwzorowany w debugowej geometrii i kolizji. Następny krok to zastąpienie
+pojedynczych prostokątnych placeholderów spójną geometrią ścian dla wybranego
+elevation oraz test przejścia gracza przez otwarte drzwi. Nie należy jeszcze
+hookować ani modyfikować retailowego EXE.
+
+Podczas pierwszego testu starszy launcher ustawił instalację Steam jako katalog
+roboczy i utworzył tam `data\maps\ARTEMPLE.SAV` oraz
+`data\maps\ARCAVES.SAV`. Proces został zatrzymany, a launcher naprawiony.
+Pliki pozostawiono bez zmian; ich usunięcie wymaga świadomej zgody użytkownika.

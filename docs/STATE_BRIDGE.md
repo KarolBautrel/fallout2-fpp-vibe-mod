@@ -104,6 +104,9 @@ Godot ma już odbiornik śledzący przyrost pliku JSONL. Domyślnie działa jako
 obserwator i pokazuje zgodność w HUD. Flaga `--bridge-live` wyłącza lokalny ruch
 i odtwarza ostatni zapisany stan CE przed śledzeniem nowych zdarzeń, dzięki
 czemu okno Godota można bezpiecznie uruchomić ponownie w trakcie sesji.
+Klawisz `F6` włącza jawny `TEST WALK`: WASD i mysz poruszają tylko lokalną
+kamerą/postacią w Godocie, zdarzenia pozycji CE są buforowane, a interakcja `E`
+jest zablokowana. Ponowne `F6` przywraca ostatni autorytatywny stan CE.
 Następnie stosuje stan CE do wspólnego gracza oraz obiektów. Test `--bridge-probe`
 potwierdza `map_loaded`, początkowy snapshot drzwi, `player_moved`, `interaction`,
 deltę `object_state`, przyrostowe dopisywanie, buforowanie przeciętego rekordu

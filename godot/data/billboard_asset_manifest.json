@@ -1,0 +1,21 @@
+{
+  "schema": "fo2remix.billboard-manifest-v1",
+  "source_policy": "runtime cache generated from the user's read-only Fallout 2 DAT archives",
+  "committed_original_assets": false,
+  "cache_root": "artifacts/art-cache/<map>",
+  "modes": {
+    "directional_6": "six FRM rotations selected from actor facing and camera bearing",
+    "billboard_y": "single source view rotates around the vertical axis toward the camera",
+    "billboard_screen": "single source view fully faces the camera",
+    "billboard_fixed": "source view remains aligned to the MAP object rotation",
+    "billboard_cross": "two perpendicular source planes for sparse vegetation",
+    "ground_decal": "source view lies just above the floor"
+  },
+  "quality": {
+    "pivot": "bottom-center",
+    "alpha": "palette index 0 becomes transparent; alpha scissor in Godot",
+    "filter": "nearest with mipmaps",
+    "shading": "unshaded source color"
+  },
+  "architecture_policy": "buildings, walls, floors, stairs and ceilings remain reconstructed geometry; actors use six directional views; compact freestanding props and single-view furniture such as chests, vases and temple benches use source billboards with MAP-derived or separate physical collision; unknown scenery stays hidden until classified"
+}

@@ -12,6 +12,9 @@ Buduj pionowy wycinek Fallouta 2 z przełączaniem ISO/FPP. Kamera FPP znajduje 
 - Używaj `fallout2-ce` jako źródła prawdy przed zgadywaniem formatu lub zachowania.
 - Każdą hipotezę o formacie potwierdź testem na co najmniej dwóch rekordach albo round-tripem, gdy istnieje zapis.
 - Nie publikuj forka ani konwertera bez osobnego przeglądu licencji i zawartości.
+- Traktuj `docs/FIDELITY_SPEC.md` jako wiążącą specyfikację renderera: minimalna
+  geometria jest tylko nośnikiem oryginalnych pikseli FRM. Nie zastępuj świata
+  Fallouta wymyślonymi modelami, proceduralnym wyglądem ani generowanymi assetami.
 
 ## Kolejność pracy
 

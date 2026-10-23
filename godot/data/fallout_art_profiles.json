@@ -2,6 +2,14 @@
   "schema": "fo2remix.art-profiles-v1",
   "profiles": [
     {
+      "id": "critter_six_direction",
+      "kind": "critter",
+      "art_path_prefix": "art\\critters\\",
+      "render_mode": "directional_6",
+      "pixels_per_meter": 36.0,
+      "animate": true
+    },
+    {
       "id": "technical_wall_blocker",
       "kind": "wall",
       "art_path_prefix": "art\\walls\\block.frm",
@@ -27,14 +35,24 @@
       "id": "wall_torch",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\atorch",
-      "render_mode": "proxy_torch",
+      "render_mode": "billboard_y",
+      "pixels_per_meter": 48.0,
+      "crop_rect": [0, 0, 15, 32],
+      "animate": false,
+      "source_flame_path": "art\\scenery\\firepit.frm",
+      "source_flame_frames": 12,
+      "source_flame_fps": 9.0,
+      "offset_from_nearest_wall_normal": 0.48,
+      "vertical_offset": 1.34,
       "light_color": "ffb067"
     },
     {
       "id": "fire_pit",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\firepit.frm",
-      "render_mode": "proxy_fire_pit",
+      "render_mode": "billboard_cross",
+      "pixels_per_meter": 64.0,
+      "animate": true,
       "light_color": "ff9c4a",
       "light_height_offset": 0.15
     },
@@ -42,7 +60,7 @@
       "id": "waterfall",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\watfall",
-      "render_mode": "billboard",
+      "render_mode": "billboard_fixed",
       "pixels_per_meter": 48.0,
       "animate": true
     },
@@ -50,43 +68,39 @@
       "id": "outdoor_fire_pit",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\firpit",
-      "render_mode": "proxy_fire_pit",
+      "render_mode": "billboard_fixed",
+      "pixels_per_meter": 64.0,
+      "animate": true,
       "light_color": "ff9c4a",
       "light_height_offset": 0.15
     },
     {
-      "id": "temple_main_gate",
+      "id": "temple_structure_anchor",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\temple01.frm",
-      "render_mode": "proxy_temple_gate",
+      "render_mode": "temple_component",
       "albedo": "4b3b30",
       "forward_offset": 7.0
     },
     {
-      "id": "temple_stairs_lower",
+      "id": "temple_structure_shadow_a",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\temple07.frm",
-      "render_mode": "proxy_stairs",
-      "albedo": "4b3b30",
-      "width": 2.45,
-      "height": 0.78,
-      "depth": 1.8
+      "render_mode": "temple_component",
+      "albedo": "4b3b30"
     },
     {
-      "id": "temple_stairs_upper",
+      "id": "temple_structure_shadow_b",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\temple08.frm",
-      "render_mode": "proxy_stairs",
-      "albedo": "4b3b30",
-      "width": 2.45,
-      "height": 0.78,
-      "depth": 1.8
+      "render_mode": "temple_component",
+      "albedo": "4b3b30"
     },
     {
       "id": "temple_left_rear_mass",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\temple02.frm",
-      "render_mode": "proxy_temple_mass",
+      "render_mode": "temple_component",
       "albedo": "4b3b30",
       "width": 4.6,
       "height": 3.0,
@@ -96,7 +110,7 @@
       "id": "temple_left_connector",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\temple03.frm",
-      "render_mode": "proxy_temple_mass",
+      "render_mode": "temple_component",
       "albedo": "4b3b30",
       "width": 1.45,
       "height": 3.3,
@@ -106,7 +120,7 @@
       "id": "temple_relief_mass",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\temple04.frm",
-      "render_mode": "proxy_temple_mass",
+      "render_mode": "temple_component",
       "albedo": "4b3b30",
       "width": 5.5,
       "height": 3.9,
@@ -116,7 +130,7 @@
       "id": "temple_center_mass",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\temple05.frm",
-      "render_mode": "proxy_temple_mass",
+      "render_mode": "temple_component",
       "albedo": "4b3b30",
       "width": 1.6,
       "height": 3.7,
@@ -126,7 +140,7 @@
       "id": "temple_right_mass",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\temple06.frm",
-      "render_mode": "proxy_temple_mass",
+      "render_mode": "temple_component",
       "albedo": "4b3b30",
       "width": 6.2,
       "height": 3.3,
@@ -136,7 +150,7 @@
       "id": "dead_tree",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\tree",
-      "render_mode": "proxy_tree",
+      "render_mode": "billboard_cross",
       "pixels_per_meter": 54.0
     },
     {
@@ -144,41 +158,59 @@
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\rock",
       "render_mode": "proxy_rock",
-      "pixels_per_meter": 52.0,
       "depth": 0.65
+    },
+    {
+      "id": "temple_basin",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\tempsf03.frm",
+      "render_mode": "ground_decal",
+      "pixels_per_meter": 48.0
+    },
+    {
+      "id": "temple_bench_straight",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\tempsf04.frm",
+      "render_mode": "billboard_y",
+      "pixels_per_meter": 48.0
+    },
+    {
+      "id": "temple_bench_corner",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\tempsf05.frm",
+      "render_mode": "billboard_y",
+      "pixels_per_meter": 48.0
     },
     {
       "id": "temple_furniture",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\tempsf",
-      "render_mode": "proxy_box",
-      "pixels_per_meter": 54.0,
-      "height": 0.72,
-      "depth": 0.55
+      "render_mode": "billboard_fixed",
+      "pixels_per_meter": 48.0
     },
     {
       "id": "container_chest",
       "kind": "item",
       "art_path_prefix": "art\\items\\chest",
-      "render_mode": "proxy_box",
-      "width": 0.95,
-      "height": 0.58,
-      "depth": 0.58
+      "render_mode": "billboard_y",
+      "pixels_per_meter": 48.0,
+      "collision": true,
+      "collision_width": 0.82,
+      "collision_height": 0.56,
+      "collision_depth": 0.52
     },
     {
       "id": "vase",
       "kind": "item",
       "art_path_prefix": "art\\items\\arvase",
-      "render_mode": "proxy_vase",
-      "width": 0.46,
-      "height": 0.68,
-      "depth": 0.46
+      "render_mode": "billboard_y",
+      "pixels_per_meter": 48.0
     },
     {
       "id": "bones",
       "kind": "item",
       "art_path_prefix": "art\\items\\arbones",
-      "render_mode": "proxy_rock",
+      "render_mode": "ground_decal",
       "width": 0.65,
       "height": 0.12,
       "depth": 0.42
@@ -187,8 +219,13 @@
       "id": "source_scenery",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\",
-      "render_mode": "hidden",
-      "pixels_per_meter": 48.0
+      "render_mode": "hidden"
+    },
+    {
+      "id": "source_item",
+      "kind": "item",
+      "art_path_prefix": "art\\items\\",
+      "render_mode": "hidden"
     }
   ]
 }

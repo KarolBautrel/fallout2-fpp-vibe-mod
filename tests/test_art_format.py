@@ -1,4 +1,10 @@
-from fo2remix.art_format import ArtCatalog, fid_list_index, fid_type
+from fo2remix.art_format import (
+    ArtCatalog,
+    fid_animation,
+    fid_list_index,
+    fid_type,
+    fid_weapon_animation,
+)
 
 
 class _Archive:
@@ -28,3 +34,22 @@ def test_resolves_two_wall_fids_with_zero_based_list_indices() -> None:
     assert temple.list_index == 2
     assert fid_type(0x03000001) == 3
     assert fid_list_index(0x03001002) == 2
+
+
+def test_resolves_two_critter_fids_with_fallout_animation_codes() -> None:
+    archive = _Archive(
+        {
+            r"art\critters\critters.lst": (
+                b"hmjmps,0,1\nmarobm,0,1\n"
+            )
+        }
+    )
+    catalog = ArtCatalog(archive)  # type: ignore[arg-type]
+
+    unarmed_stand = catalog.resolve(0x01000001)
+    spear_stand = catalog.resolve(0x01004000)
+
+    assert unarmed_stand.path == r"art\critters\marobmaa.frm"
+    assert spear_stand.path == r"art\critters\hmjmpsga.frm"
+    assert fid_animation(0x01134000) == 19
+    assert fid_weapon_animation(0x01004000) == 4

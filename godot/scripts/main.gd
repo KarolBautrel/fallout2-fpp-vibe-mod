@@ -16,13 +16,16 @@ const SCENE_PATHS := {
 const EVIDENCE_PATH := "res://../artifacts/godot-iso-fpp-contract.json"
 const MOVEMENT_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-movement-runtime.json"
 const BLOCKING_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-blocking-runtime.json"
+const SOURCE_SOLID_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-source-solid-runtime.json"
 const INTERACTION_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-interaction-runtime.json"
 const BRIDGE_TRACE_PATH := "res://../artifacts/fallout2-ce-state.jsonl"
 const BRIDGE_PROBE_TRACE_PATH := "res://../artifacts/godot-bridge-probe-input.jsonl"
 const BRIDGE_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-bridge-runtime.json"
 const BRIDGE_LIVE_EVIDENCE_PATH := "res://../artifacts/godot-bridge-live-runtime.json"
 const RENDER_PERFORMANCE_EVIDENCE_PATH := "res://../artifacts/godot-render-performance.json"
+const WALL_SEAM_AUDIT_PATH := "res://../artifacts/arcaves-wall-seam-audit.json"
 const ART_PROFILE_PATH := "res://data/fallout_art_profiles.json"
+const SOURCE_GEOMETRY_RULE_PATH := "res://data/source_geometry_rules.json"
 const FALLOUT2_CE_COMMIT := "e97087b9582f37075db347a89898887320753f8b"
 
 const FLOOR_CELL_COUNT := 100 * 100
@@ -38,11 +41,13 @@ const INTERIOR_CEILING_WALL_DENSITY := 0.08
 const PROP_PIXELS_PER_METER := 48.0
 const PROP_MAX_HEIGHT := 2.85
 const PROP_LIGHT_LIMIT := 12
+const FPP_VERTICAL_FOV_DEGREES := 65.0
 const CAMERA_ISO := "ISO"
 const CAMERA_FPP := "FPP"
 
 var scene_data: Dictionary
 var art_profiles: Array = []
+var source_geometry_families := {}
 var active_camera_mode := CAMERA_FPP
 var map_geometry_root: Node3D
 var floor_instances: Array[MultiMeshInstance3D] = []
@@ -53,10 +58,24 @@ var inferred_ceiling_component_count := 0
 var ceiling_strategy := "roof_tiles"
 var elevation_roots := {}
 var active_elevation := -1
-var debug_object_counts := {"wall": 0, "door": 0, "scenery": 0, "item": 0}
+var debug_object_counts := {"wall": 0, "door": 0, "scenery": 0, "item": 0, "critter": 0}
 var wall_mesh_face_count := 0
 var wall_mesh_elevation_count := 0
 var wall_profile_match_count := 0
+var wall_segment_count := 0
+var wall_composite_layer_count := 0
+var wall_nonstraight_component_count := 0
+var wall_maximum_normal_span := 0.0
+var wall_nonstraight_components: Array[Dictionary] = []
+var arcaves_archway_count := 0
+var arcaves_arch_surface_count := 0
+var arcaves_arch_unpaired_count := 0
+var arcaves_wall_relief_count := 0
+var arcaves_wall_relief_unpaired_count := 0
+var arcaves_block_bridge_count := 0
+var wall_carrier_segments: Array[Dictionary] = []
+var wall_seam_candidates: Array[Dictionary] = []
+var wall_seam_connector_count := 0
 var blocking_collision_count := 0
 var object_records_by_instance_id := {}
 var object_states := {}
@@ -70,6 +89,8 @@ var tile_art_by_id := {}
 var image_texture_cache := {}
 var door_art_overlay_count := 0
 var prop_art_overlay_count := 0
+var source_solid_collision_count := 0
+var temple_structure_count := 0
 var active_prop_light_count := 0
 var prop_animation_time := 0.0
 var interaction_status := "No object selected"
@@ -81,6 +102,9 @@ var crosshair: Label
 var hud_refresh_timer := 0.0
 var state_bridge
 var bridge_authoritative := false
+var bridge_test_movement_override := false
+var bridge_last_player_state := {}
+var bridge_last_player_map_name := ""
 var bridge_transport_status := "OFF"
 var bridge_parity_status := "No CE state received"
 var bridge_events_observed := 0
@@ -94,6 +118,7 @@ var last_bridge_object_state := {}
 
 func _ready() -> void:
 	_load_art_profiles()
+	_load_source_geometry_rules()
 	_load_scene_data()
 	if scene_data.is_empty():
 		return
@@ -113,8 +138,44 @@ func _ready() -> void:
 	_update_cameras()
 	_run_contract_checks()
 	_set_camera_mode(_requested_start_camera())
+	if _has_user_argument("--archway-lab"):
+		_position_arcaves_doorway_preview(false)
+	elif _has_user_argument("--relief-lab"):
+		_position_arcaves_relief_preview(false)
+	elif _has_user_argument("--room-arch-lab"):
+		_position_arcaves_room_arch_preview(false)
+	elif _has_user_argument("--feedback-gowno1"):
+		_position_arcaves_feedback_preview(13082, 1)
+	elif _has_user_argument("--feedback-gowno2"):
+		_position_arcaves_feedback_preview(20306, 4)
+	elif _has_user_argument("--feedback-gowno3"):
+		_position_arcaves_feedback_preview(23308, 2)
+	elif _has_user_argument("--feedback-gap"):
+		_position_arcaves_feedback_preview(20505, 4)
+	elif _has_user_argument("--feedback-gap2-left"):
+		_position_arcaves_feedback_preview(21107, 4, -20.0)
+	elif _has_user_argument("--feedback-gap2-right"):
+		_position_arcaves_feedback_preview(21107, 4, 20.0)
+	elif _has_user_argument("--feedback-gap2"):
+		_position_arcaves_feedback_preview(21107, 4)
+	elif _has_user_argument("--feedback-holes"):
+		_position_arcaves_feedback_preview(20513, 0)
+	elif _has_user_argument("--feedback-bench"):
+		_position_arcaves_prop_preview(218)
+	elif _has_user_argument("--feedback-chest"):
+		_position_arcaves_prop_preview(1979)
+	elif _has_user_argument("--feedback-chest-side"):
+		_position_arcaves_prop_orbit_preview(1979, 90.0, 0.45, 2.4)
+	elif _has_user_argument("--feedback-critter"):
+		_position_arcaves_prop_preview(3387, 0.88, 3.2)
+	elif _has_user_argument("--feedback-torch"):
+		_position_arcaves_wall_prop_preview(1981, 1.82, 2.8)
+	elif _has_user_argument("--feedback-furniture"):
+		_position_arcaves_feedback_preview(14683, 1, 0.0, 1)
 	_write_evidence()
-	if _has_user_argument("--performance-probe"):
+	if _has_user_argument("--seam-audit-screens"):
+		_run_wall_seam_screenshot_probe()
+	elif _has_user_argument("--performance-probe"):
 		_run_render_performance_probe()
 	elif _has_user_argument("--screenshot-probe"):
 		_run_screenshot_probe()
@@ -124,11 +185,33 @@ func _ready() -> void:
 		_run_interaction_probe()
 	elif _has_user_argument("--blocking-probe"):
 		_run_blocking_collision_probe()
+	elif _has_user_argument("--source-solid-probe"):
+		_run_source_solid_collision_probe()
 	elif _has_user_argument("--movement-probe"):
 		_run_runtime_movement_probe()
 
 
 func _run_screenshot_probe() -> void:
+	if _has_user_argument("--temple-preview") and _map_stem(String(scene_data["map"]["name"])) == "artemple":
+		var target: Vector3 = Vector3(2.30, 2.25, -18.70)
+		if active_camera_mode == CAMERA_FPP:
+			var direction: Vector3 = target - player.get_eye_position()
+			player.set_view_angles(atan2(-direction.x, -direction.z), 0.0)
+			_update_cameras()
+		else:
+			iso_camera.global_position = target + Vector3(14.0, 18.0, 14.0)
+			iso_camera.look_at(target, Vector3.UP)
+	elif _has_user_argument("--archway-preview") and _map_stem(String(scene_data["map"]["name"])) == "arcaves":
+		_position_arcaves_doorway_preview(_has_user_argument("--archway-side-preview"))
+		if _has_user_argument("--door-open-preview") and object_states.has(1338):
+			object_states[1338]["open"] = true
+			object_states[1338]["blocks_movement"] = false
+			_refresh_door_art_frame(1338)
+			_refresh_object_collisions(1338)
+	elif _has_user_argument("--relief-preview") and _map_stem(String(scene_data["map"]["name"])) == "arcaves":
+		_position_arcaves_relief_preview(_has_user_argument("--relief-side-preview"))
+	elif _has_user_argument("--room-arch-preview") and _map_stem(String(scene_data["map"]["name"])) == "arcaves":
+		_position_arcaves_room_arch_preview(_has_user_argument("--room-arch-side-preview"))
 	for _frame in 30:
 		await get_tree().process_frame
 	var image := get_viewport().get_texture().get_image()
@@ -138,16 +221,301 @@ func _run_screenshot_probe() -> void:
 		return
 	var map_key := _map_stem(String(scene_data["map"]["name"]))
 	var camera_key := active_camera_mode.to_lower()
-	var path := "res://../artifacts/godot-%s-%s-material-preview.png" % [
-		map_key,
-		camera_key,
-	]
+	var path := "res://../artifacts/godot-%s-%s-material-preview.png" % [map_key, camera_key]
+	if _has_user_argument("--archway-preview"):
+		path = "res://../artifacts/arcaves-doorway-exemplar-%s%s.png" % [
+			"side-" if _has_user_argument("--archway-side-preview") else "",
+			"open" if _has_user_argument("--door-open-preview") else "closed",
+		]
+	elif _has_user_argument("--relief-preview"):
+		path = "res://../artifacts/arcaves-wall-relief-%s.png" % [
+			"side" if _has_user_argument("--relief-side-preview") else "front",
+		]
+	elif _has_user_argument("--room-arch-preview"):
+		path = "res://../artifacts/arcaves-room-arch-%s.png" % [
+			"side" if _has_user_argument("--room-arch-side-preview") else "front",
+		]
+	elif _has_user_argument("--feedback-gowno1"):
+		path = "res://../artifacts/feedback-gowno1-candidate.png"
+	elif _has_user_argument("--feedback-gowno2"):
+		path = "res://../artifacts/feedback-gowno2-candidate.png"
+	elif _has_user_argument("--feedback-gowno3"):
+		path = "res://../artifacts/feedback-gowno3-candidate.png"
+	elif _has_user_argument("--feedback-gap"):
+		path = "res://../artifacts/feedback-gap-candidate.png"
+	elif _has_user_argument("--feedback-gap2"):
+		path = (
+			"res://../artifacts/feedback-gap2-iso.png"
+			if active_camera_mode == CAMERA_ISO
+			else "res://../artifacts/feedback-gap2-candidate.png"
+		)
+	elif _has_user_argument("--feedback-gap2-left"):
+		path = "res://../artifacts/feedback-gap2-left.png"
+	elif _has_user_argument("--feedback-gap2-right"):
+		path = "res://../artifacts/feedback-gap2-right.png"
+	elif _has_user_argument("--feedback-holes"):
+		path = "res://../artifacts/feedback-holes-candidate.png"
+	elif _has_user_argument("--feedback-bench"):
+		path = "res://../artifacts/feedback-bench-candidate.png"
+	elif _has_user_argument("--feedback-chest"):
+		path = "res://../artifacts/feedback-chest-candidate.png"
+	elif _has_user_argument("--feedback-chest-side"):
+		path = "res://../artifacts/feedback-chest-side-candidate.png"
+	elif _has_user_argument("--feedback-critter"):
+		path = "res://../artifacts/feedback-critter-candidate.png"
+	elif _has_user_argument("--feedback-torch"):
+		path = "res://../artifacts/feedback-torch-candidate.png"
+	elif _has_user_argument("--feedback-furniture"):
+		path = "res://../artifacts/feedback-furniture-candidate.png"
 	var error := image.save_png(ProjectSettings.globalize_path(path))
 	if error != OK:
 		push_error("Unable to save screenshot: %s" % error_string(error))
 		get_tree().quit(2)
 		return
 	print("FO2REMIX_SCREENSHOT %s" % ProjectSettings.globalize_path(path))
+	get_tree().quit()
+
+
+func _position_arcaves_doorway_preview(side_view: bool) -> void:
+	if _map_stem(String(scene_data["map"]["name"])) != "arcaves":
+		return
+	var endpoint_a := Coordinates.hex_index_to_world(24305, 0)
+	var endpoint_b := Coordinates.hex_index_to_world(24310, 0)
+	var portal_center := (endpoint_a + endpoint_b) * 0.5
+	var portal_tangent := (endpoint_b - endpoint_a).normalized()
+	var portal_normal := Vector3(-portal_tangent.z, 0.0, portal_tangent.x)
+	var viewpoint := portal_center + portal_normal * 4.0
+	if side_view:
+		viewpoint += portal_tangent * 2.15
+	var preview_hex := Coordinates.world_to_nearest_hex(viewpoint)
+	player.apply_bridge_state(String(scene_data["map"]["name"]), {
+		"hex_index": preview_hex,
+		"elevation": 0,
+		"rotation": 0,
+	})
+	var target := portal_center + Vector3.UP * 1.35
+	var direction: Vector3 = target - player.get_eye_position()
+	player.set_view_angles(atan2(-direction.x, -direction.z), 0.0)
+	_update_cameras()
+
+
+func _position_arcaves_relief_preview(side_view: bool) -> void:
+	if _map_stem(String(scene_data["map"]["name"])) != "arcaves":
+		return
+	var endpoint_a := Coordinates.hex_index_to_world(28700, 0)
+	var endpoint_b := Coordinates.hex_index_to_world(29500, 0)
+	var relief_center := (endpoint_a + endpoint_b) * 0.5
+	var relief_tangent := (endpoint_b - endpoint_a).normalized()
+	var relief_normal := Vector3(-relief_tangent.z, 0.0, relief_tangent.x)
+	var support_position := Coordinates.hex_index_to_world(29098, 0)
+	relief_center += relief_normal * (
+		support_position.dot(relief_normal) - relief_center.dot(relief_normal)
+	)
+	var viewpoint := relief_center + relief_normal * 4.0
+	if side_view:
+		viewpoint += relief_tangent * 2.0
+	var preview_hex := Coordinates.world_to_nearest_hex(viewpoint)
+	player.apply_bridge_state(String(scene_data["map"]["name"]), {
+		"hex_index": preview_hex,
+		"elevation": 0,
+		"rotation": 0,
+	})
+	var target := relief_center + Vector3.UP * 1.4
+	var direction: Vector3 = target - player.get_eye_position()
+	player.set_view_angles(atan2(-direction.x, -direction.z), 0.0)
+	_update_cameras()
+
+
+func _position_arcaves_room_arch_preview(side_view: bool) -> void:
+	if _map_stem(String(scene_data["map"]["name"])) != "arcaves":
+		return
+	var endpoint_a := Coordinates.hex_index_to_world(12674, 0)
+	var endpoint_b := Coordinates.hex_index_to_world(13474, 0)
+	var arch_center := (endpoint_a + endpoint_b) * 0.5
+	var arch_tangent := (endpoint_b - endpoint_a).normalized()
+	var arch_normal := Vector3(-arch_tangent.z, 0.0, arch_tangent.x)
+	var viewpoint := arch_center + arch_normal * 4.0
+	if side_view:
+		viewpoint += arch_tangent * 2.0
+	var preview_hex := Coordinates.world_to_nearest_hex(viewpoint)
+	player.apply_bridge_state(String(scene_data["map"]["name"]), {
+		"hex_index": preview_hex,
+		"elevation": 0,
+		"rotation": 0,
+	})
+	var target := arch_center + Vector3.UP * 1.4
+	var direction: Vector3 = target - player.get_eye_position()
+	player.set_view_angles(atan2(-direction.x, -direction.z), 0.0)
+	_update_cameras()
+
+
+func _position_arcaves_feedback_preview(
+	tile: int,
+	rotation: int,
+	yaw_offset_degrees: float = 0.0,
+	elevation: int = 0
+) -> void:
+	if _map_stem(String(scene_data["map"]["name"])) != "arcaves":
+		return
+	player.apply_bridge_state(String(scene_data["map"]["name"]), {
+		"hex_index": tile,
+		"elevation": elevation,
+		"rotation": rotation,
+	})
+	var forward := Coordinates.direction_to_world(tile, rotation)
+	player.set_view_angles(
+		atan2(-forward.x, -forward.z) + deg_to_rad(yaw_offset_degrees),
+		0.0
+	)
+	_update_cameras()
+
+
+func _position_arcaves_prop_preview(
+	instance_id: int,
+	target_height: float = 0.45,
+	view_distance: float = 2.4
+) -> void:
+	if not object_records_by_instance_id.has(instance_id):
+		return
+	var record: Dictionary = object_records_by_instance_id[instance_id]
+	var tile := int(record["hex_index"])
+	var elevation := int(record["elevation"])
+	var target := Coordinates.hex_index_to_world(tile, elevation) + Vector3.UP * target_height
+	var source_direction := Coordinates.direction_to_world(tile, int(record.get("rotation", 0)))
+	var viewpoint := target - Vector3.UP * target_height - source_direction * view_distance
+	var preview_hex := Coordinates.world_to_nearest_hex(viewpoint)
+	player.apply_bridge_state(String(scene_data["map"]["name"]), {
+		"hex_index": preview_hex,
+		"elevation": elevation,
+		"rotation": 0,
+	})
+	var look_direction: Vector3 = target - player.get_eye_position()
+	player.set_view_angles(
+		atan2(-look_direction.x, -look_direction.z),
+		atan2(look_direction.y, Vector2(look_direction.x, look_direction.z).length())
+	)
+	_update_cameras()
+
+
+func _position_arcaves_prop_orbit_preview(
+	instance_id: int,
+	orbit_degrees: float,
+	target_height: float,
+	view_distance: float
+) -> void:
+	if not object_records_by_instance_id.has(instance_id):
+		return
+	var record: Dictionary = object_records_by_instance_id[instance_id]
+	var tile := int(record["hex_index"])
+	var elevation := int(record["elevation"])
+	var base_position := Coordinates.hex_index_to_world(tile, elevation)
+	var target := base_position + Vector3.UP * target_height
+	var source_direction := Coordinates.direction_to_world(
+		tile,
+		int(record.get("rotation", 0))
+	)
+	var view_direction := (-source_direction).rotated(
+		Vector3.UP,
+		deg_to_rad(orbit_degrees)
+	)
+	var viewpoint := base_position + view_direction * view_distance
+	var preview_hex := Coordinates.world_to_nearest_hex(viewpoint)
+	player.apply_bridge_state(String(scene_data["map"]["name"]), {
+		"hex_index": preview_hex,
+		"elevation": elevation,
+		"rotation": 0,
+	})
+	var look_direction: Vector3 = target - player.get_eye_position()
+	player.set_view_angles(
+		atan2(-look_direction.x, -look_direction.z),
+		atan2(look_direction.y, Vector2(look_direction.x, look_direction.z).length())
+	)
+	_update_cameras()
+
+
+func _position_arcaves_wall_prop_preview(
+	instance_id: int,
+	target_height: float,
+	view_distance: float
+) -> void:
+	if not object_records_by_instance_id.has(instance_id):
+		return
+	var record: Dictionary = object_records_by_instance_id[instance_id]
+	var profile := _art_profile_for_record(record)
+	var attachment := _nearest_wall_attachment(record, profile)
+	if attachment.is_empty():
+		_position_arcaves_prop_preview(instance_id, target_height, view_distance)
+		return
+	var elevation := int(record["elevation"])
+	# The MAP scenery hex already sits on the intended room side of the wall.
+	# Use the carrier only to discover that side, not to overwrite the source anchor.
+	var surface_position := Coordinates.hex_index_to_world(
+		int(record["hex_index"]),
+		elevation
+	)
+	var outward: Vector3 = attachment["outward"]
+	var viewpoint := surface_position + outward * view_distance
+	var preview_hex := Coordinates.world_to_nearest_hex(viewpoint)
+	player.apply_bridge_state(String(scene_data["map"]["name"]), {
+		"hex_index": preview_hex,
+		"elevation": elevation,
+		"rotation": 0,
+	})
+	var target := surface_position + Vector3.UP * target_height
+	var look_direction: Vector3 = target - player.get_eye_position()
+	player.set_view_angles(
+		atan2(-look_direction.x, -look_direction.z),
+		atan2(look_direction.y, Vector2(look_direction.x, look_direction.z).length())
+	)
+	_update_cameras()
+
+
+func _position_wall_seam_preview(candidate: Dictionary, side: float) -> void:
+	var center: Vector3 = candidate["center"]
+	var endpoint: Vector3 = candidate["endpoint"]
+	var contact: Vector3 = candidate["contact"]
+	var tangent := Vector3(contact.x - endpoint.x, 0.0, contact.z - endpoint.z).normalized()
+	var normal := Vector3(-tangent.z, 0.0, tangent.x)
+	var viewpoint := center + normal * 2.8 * side
+	var preview_hex := Coordinates.world_to_nearest_hex(viewpoint)
+	player.apply_bridge_state(String(scene_data["map"]["name"]), {
+		"hex_index": preview_hex,
+		"elevation": int(candidate["elevation"]),
+		"rotation": 0,
+	})
+	var target := center + Vector3.UP * 1.35
+	var direction: Vector3 = target - player.get_eye_position()
+	player.set_view_angles(
+		atan2(-direction.x, -direction.z),
+		atan2(direction.y, Vector2(direction.x, direction.z).length())
+	)
+	_update_cameras()
+
+
+func _run_wall_seam_screenshot_probe() -> void:
+	var elevation_zero_candidates: Array[Dictionary] = []
+	for candidate_value in wall_seam_candidates:
+		var candidate: Dictionary = candidate_value
+		if int(candidate["elevation"]) == 0:
+			elevation_zero_candidates.append(candidate)
+	var sample_count := mini(elevation_zero_candidates.size(), 8)
+	for index in sample_count:
+		var candidate: Dictionary = elevation_zero_candidates[index]
+		for side_index in 2:
+			var side := -1.0 if side_index == 0 else 1.0
+			_position_wall_seam_preview(candidate, side)
+			for _frame in 3:
+				await get_tree().process_frame
+			var image := get_viewport().get_texture().get_image()
+			assert(not image.is_empty(), "Wall seam audit screenshot is empty")
+			var path := "res://../artifacts/arcaves-wall-seam-%02d-%s%s.png" % [
+				index,
+				"a" if side_index == 0 else "b",
+				"-baseline" if _has_user_argument("--disable-seam-connectors") else "-connector",
+			]
+			var error := image.save_png(ProjectSettings.globalize_path(path))
+			assert(error == OK, "Unable to save wall seam audit screenshot")
+	print("FO2REMIX_WALL_SEAM_SCREENSHOTS %d" % (sample_count * 2))
 	get_tree().quit()
 
 
@@ -210,6 +578,24 @@ func _load_art_profiles() -> void:
 		push_error("Unsupported or invalid art profile catalog")
 		return
 	art_profiles = parsed.get("profiles", [])
+
+
+func _load_source_geometry_rules() -> void:
+	var file := FileAccess.open(SOURCE_GEOMETRY_RULE_PATH, FileAccess.READ)
+	if file == null:
+		push_error(
+			"Missing source geometry rules: %s"
+			% ProjectSettings.globalize_path(SOURCE_GEOMETRY_RULE_PATH)
+		)
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if (
+		not parsed is Dictionary
+		or parsed.get("schema", "") != "fo2remix.source-geometry-rules-v1"
+	):
+		push_error("Unsupported or invalid source geometry rule catalog")
+		return
+	source_geometry_families = parsed.get("families", {})
 
 
 func _load_scene_data_from_path(path: String) -> bool:
@@ -662,6 +1048,7 @@ func _create_map_object_debug_geometry() -> void:
 	var doors: Array[Dictionary] = []
 	var scenery: Array[Dictionary] = []
 	var items: Array[Dictionary] = []
+	var critters: Array[Dictionary] = []
 	for value in records:
 		var record: Dictionary = value
 		var instance_id := int(record["instance_id"])
@@ -684,22 +1071,37 @@ func _create_map_object_debug_geometry() -> void:
 				scenery.append(record)
 			"item":
 				items.append(record)
+			"critter":
+				critters.append(record)
 
 	debug_object_counts["wall"] = walls.size()
 	debug_object_counts["door"] = doors.size()
 	debug_object_counts["scenery"] = scenery.size()
 	debug_object_counts["item"] = items.size()
+	debug_object_counts["critter"] = critters.size()
 	wall_profile_match_count = 0
 	for wall in walls:
 		if not _art_profile_for_record(wall).is_empty():
 			wall_profile_match_count += 1
 	_create_wall_topology_mesh(walls)
-	_create_object_instances("DebugDoors", doors, Vector3(0.9, 2.1, 0.18), Color("d18152"))
 	_create_door_art_overlays(doors)
+	var fallback_doors: Array[Dictionary] = []
+	for door in doors:
+		if not door_art_overlays.has(int(door["instance_id"])):
+			fallback_doors.append(door)
+	_create_object_instances(
+		"DebugDoorsFallback",
+		fallback_doors,
+		Vector3(0.9, 2.1, 0.18),
+		Color("d18152")
+	)
 	var billboard_records: Array[Dictionary] = []
 	billboard_records.append_array(scenery)
 	billboard_records.append_array(items)
+	billboard_records.append_array(critters)
 	var rendered_scenery := _create_scenery_art_overlays(billboard_records)
+	var rendered_temple_components := _create_temple_architecture(scenery)
+	rendered_scenery.merge(rendered_temple_components, true)
 	var fallback_scenery: Array[Dictionary] = []
 	for record in billboard_records:
 		var instance_id := int(record["instance_id"])
@@ -714,24 +1116,86 @@ func _create_map_object_debug_geometry() -> void:
 
 
 func _create_wall_topology_mesh(records: Array[Dictionary]) -> void:
+	arcaves_block_bridge_count = 0
+	wall_carrier_segments.clear()
+	wall_seam_candidates.clear()
+	wall_seam_connector_count = 0
 	var records_by_elevation := {}
+	var topology_hints_by_elevation := {}
+	var arcaves_block_records_by_elevation := {}
+	var arcaves_visible_wall_records_by_elevation := {}
+	var artemple_block_walls: Array[Dictionary] = []
+	var arcaves_stone_columns: Array[Dictionary] = []
+	var arcaves_arch_records: Array[Dictionary] = []
+	var arcaves_relief_records: Array[Dictionary] = []
 	for record in records:
-		if String(_art_profile_for_record(record).get("render_mode", "geometry")) == "hidden":
+		var record_elevation := int(record["elevation"])
+		if not topology_hints_by_elevation.has(record_elevation):
+			topology_hints_by_elevation[record_elevation] = {}
+		topology_hints_by_elevation[record_elevation][int(record["hex_index"])] = true
+		if not _is_arcaves_wall_block_carrier(record):
+			if not arcaves_visible_wall_records_by_elevation.has(record_elevation):
+				arcaves_visible_wall_records_by_elevation[record_elevation] = []
+			arcaves_visible_wall_records_by_elevation[record_elevation].append(record)
+		if _is_artemple_block_wall(record):
+			artemple_block_walls.append(record)
+			continue
+		if _is_arcaves_stone_column(record):
+			arcaves_stone_columns.append(record)
+			continue
+		if _is_arcaves_arch_record(record):
+			arcaves_arch_records.append(record)
+			continue
+		if _is_arcaves_wall_relief_record(record):
+			arcaves_relief_records.append(record)
+			continue
+		if _is_arcaves_wall_block_carrier(record):
+			if not arcaves_block_records_by_elevation.has(record_elevation):
+				arcaves_block_records_by_elevation[record_elevation] = []
+			arcaves_block_records_by_elevation[record_elevation].append(record)
+			continue
+		if (
+			String(_art_profile_for_record(record).get("render_mode", "geometry")) == "hidden"
+		):
 			continue
 		var elevation := int(record["elevation"])
 		if not records_by_elevation.has(elevation):
 			records_by_elevation[elevation] = []
 		records_by_elevation[elevation].append(record)
 
+	# `block.frm` is a one-pixel collision/topology marker, not a wall sprite.
+	# Rendering every marker made transverse walls across real passages.  A marker
+	# may become geometry only when it is the unique missing cell between two
+	# visible wall records on the same opposite hex axis.
+	for elevation_value in arcaves_block_records_by_elevation:
+		var elevation := int(elevation_value)
+		var visible_records: Array = arcaves_visible_wall_records_by_elevation.get(
+			elevation,
+			[]
+		)
+		var bridge_records := _select_arcaves_block_bridges(
+			arcaves_block_records_by_elevation[elevation],
+			visible_records
+		)
+		if bridge_records.is_empty():
+			continue
+		arcaves_block_bridge_count += bridge_records.size()
+		if not records_by_elevation.has(elevation):
+			records_by_elevation[elevation] = []
+		records_by_elevation[elevation].append_array(bridge_records)
+
 	wall_mesh_face_count = 0
+	wall_segment_count = 0
+	wall_composite_layer_count = 0
+	wall_nonstraight_component_count = 0
+	wall_maximum_normal_span = 0.0
+	wall_nonstraight_components.clear()
 	wall_mesh_elevation_count = records_by_elevation.size()
 	for elevation_value in records_by_elevation:
 		var elevation := int(elevation_value)
-		var occupied_cells := {}
 		var records_by_material := {}
 		for record_value in records_by_elevation[elevation]:
 			var record: Dictionary = record_value
-			occupied_cells[int(record["hex_index"])] = true
 			var material_key := _wall_material_key(record)
 			if not records_by_material.has(material_key):
 				records_by_material[material_key] = []
@@ -741,60 +1205,1445 @@ func _create_wall_topology_mesh(records: Array[Dictionary]) -> void:
 			var material_key := String(material_key_value)
 			var surface := SurfaceTool.new()
 			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-			_add_wall_cell_volume(
+			_add_wall_segment_volume(
 				surface,
 				records_by_material[material_key],
 				elevation,
-				occupied_cells
+				topology_hints_by_elevation.get(elevation, {})
 			)
 			surface.generate_normals()
 			var mesh := surface.commit()
 			if mesh == null:
 				continue
-			var material := ShaderMaterial.new()
-			material.shader = StoneWallShader if material_key == "stone" else CaveWallShader
+			var material := _create_wall_material(material_key)
 			mesh.surface_set_material(0, material)
 			var instance := MeshInstance3D.new()
 			instance.name = "WallTopology%sElevation%d" % [material_key.capitalize(), elevation]
 			instance.mesh = mesh
 			_get_elevation_root(elevation).add_child(instance)
+	_create_artemple_block_wall_geometry(artemple_block_walls)
+	_create_arcaves_stone_columns(arcaves_stone_columns)
+	_create_arcaves_archways(arcaves_arch_records)
+	_create_arcaves_wall_reliefs(arcaves_relief_records, records)
+	_audit_wall_carrier_seams()
+
+
+func _is_arcaves_stone_column(record: Dictionary) -> bool:
+	if _map_stem(String(scene_data["map"]["name"])) != "arcaves":
+		return false
+	var rule: Dictionary = source_geometry_families.get("arcaves_temple_stone", {})
+	var column_files: Array = rule.get("column_files", [])
+	var file_name := String(record.get("art", {}).get("file_name", "")).to_lower()
+	for column_file_value in column_files:
+		if file_name == String(column_file_value).to_lower():
+			return true
+	return false
+
+
+func _is_arcaves_arch_record(record: Dictionary) -> bool:
+	if _map_stem(String(scene_data["map"]["name"])) != "arcaves":
+		return false
+	var rule: Dictionary = source_geometry_families.get("arcaves_temple_archways", {})
+	var file_name := String(record.get("art", {}).get("file_name", "")).to_lower()
+	for file_value in rule.get("open_arch_files", []):
+		if file_name == String(file_value).to_lower():
+			return true
+	return false
+
+
+func _is_arcaves_wall_relief_record(record: Dictionary) -> bool:
+	if _map_stem(String(scene_data["map"]["name"])) != "arcaves":
+		return false
+	var rule: Dictionary = source_geometry_families.get("arcaves_temple_archways", {})
+	var file_name := String(record.get("art", {}).get("file_name", "")).to_lower()
+	for file_value in rule.get("wall_relief_files", []):
+		if file_name == String(file_value).to_lower():
+			return true
+	return false
+
+
+func _create_arcaves_archways(records: Array[Dictionary]) -> void:
+	arcaves_archway_count = 0
+	arcaves_arch_surface_count = 0
+	arcaves_arch_unpaired_count = 0
+	if records.is_empty():
+		return
+	var rule: Dictionary = source_geometry_families.get("arcaves_temple_archways", {})
+	var geometry: Dictionary = rule.get("carrier_geometry", {})
+	var trim_patch: Dictionary = rule.get("trim_patch", {})
+	var roots_by_elevation := {}
+	var used_instance_ids := {}
+	for pair_value in rule.get("pairs", []):
+		var pair_rule: Dictionary = pair_value
+		var first_file := String(pair_rule.get("first_file", "")).to_lower()
+		var second_file := String(pair_rule.get("second_file", "")).to_lower()
+		var wall_class := int(pair_rule.get("wall_class", 0))
+		var expected_tangent := _wall_tangent_for_class(wall_class)
+		var minimum_span := float(pair_rule.get("minimum_span", 3.0))
+		var maximum_span := float(pair_rule.get("maximum_span", 5.0))
+		for first_record_value in records:
+			var first_record: Dictionary = first_record_value
+			var first_id := int(first_record["instance_id"])
+			if used_instance_ids.has(first_id):
+				continue
+			if String(first_record.get("art", {}).get("file_name", "")).to_lower() != first_file:
+				continue
+			var first_position := Coordinates.hex_index_to_world(
+				int(first_record["hex_index"]),
+				int(first_record["elevation"])
+			)
+			var best_record: Dictionary = {}
+			var best_score := INF
+			for second_record_value in records:
+				var second_record: Dictionary = second_record_value
+				var second_id := int(second_record["instance_id"])
+				if used_instance_ids.has(second_id):
+					continue
+				if int(second_record["elevation"]) != int(first_record["elevation"]):
+					continue
+				if String(second_record.get("art", {}).get("file_name", "")).to_lower() != second_file:
+					continue
+				var second_position := Coordinates.hex_index_to_world(
+					int(second_record["hex_index"]),
+					int(second_record["elevation"])
+				)
+				var delta := second_position - first_position
+				var span := absf(delta.dot(expected_tangent))
+				var cross_axis_error := absf(delta.dot(Vector3(
+					-expected_tangent.z, 0.0, expected_tangent.x
+				)))
+				# Odd/even Fallout hex columns alternate around the same square-grid
+				# wall axis. A five-hex portal span can therefore sit about half a
+				# world unit off the ideal centerline while still being one opening.
+				if span < minimum_span or span > maximum_span or cross_axis_error > 0.65:
+					continue
+				var score := cross_axis_error * 10.0 + span
+				if score < best_score:
+					best_score = score
+					best_record = second_record
+			if best_record.is_empty():
+				continue
+			used_instance_ids[first_id] = true
+			used_instance_ids[int(best_record["instance_id"])] = true
+			var elevation := int(first_record["elevation"])
+			if not roots_by_elevation.has(elevation):
+				var elevation_root := Node3D.new()
+				elevation_root.name = "ARCAVES_SourceArchwaysElevation%d" % elevation
+				_get_elevation_root(elevation).add_child(elevation_root)
+				roots_by_elevation[elevation] = elevation_root
+			var root: Node3D = roots_by_elevation[elevation]
+			_create_arcaves_archway_pair(
+				root,
+				first_record,
+				best_record,
+				geometry.merged({"wall_class": wall_class}, true),
+				trim_patch
+			)
+			arcaves_archway_count += 1
+	arcaves_arch_unpaired_count += records.size() - used_instance_ids.size()
+
+
+func _create_arcaves_wall_reliefs(
+	records: Array[Dictionary],
+	support_records: Array[Dictionary]
+) -> void:
+	arcaves_wall_relief_count = 0
+	arcaves_wall_relief_unpaired_count = 0
+	if records.is_empty():
+		return
+	var rule: Dictionary = source_geometry_families.get("arcaves_temple_archways", {})
+	var relief: Dictionary = rule.get("wall_relief", {})
+	var first_file := String(relief.get("first_file", "temple35.frm")).to_lower()
+	var second_file := String(relief.get("second_file", "temple36.frm")).to_lower()
+	var paired_hex_delta := int(relief.get("paired_hex_delta", 0))
+	var expected_tangent := _wall_tangent_for_class(int(relief.get("wall_class", 1)))
+	var minimum_span := float(relief.get("minimum_span", 3.2))
+	var maximum_span := float(relief.get("maximum_span", 4.0))
+	var trim_patch: Dictionary = rule.get("trim_patch", {})
+	var used_instance_ids := {}
+	var roots_by_elevation := {}
+	for first_record_value in records:
+		var first_record: Dictionary = first_record_value
+		var first_id := int(first_record["instance_id"])
+		if used_instance_ids.has(first_id):
+			continue
+		if String(first_record.get("art", {}).get("file_name", "")).to_lower() != first_file:
+			continue
+		var first_position := Coordinates.hex_index_to_world(
+			int(first_record["hex_index"]),
+			int(first_record["elevation"])
+		)
+		var best_record: Dictionary = {}
+		var best_score := INF
+		for second_record_value in records:
+			var second_record: Dictionary = second_record_value
+			var second_id := int(second_record["instance_id"])
+			if used_instance_ids.has(second_id):
+				continue
+			if int(second_record["elevation"]) != int(first_record["elevation"]):
+				continue
+			if String(second_record.get("art", {}).get("file_name", "")).to_lower() != second_file:
+				continue
+			if (
+				paired_hex_delta != 0
+				and int(second_record["hex_index"]) != int(first_record["hex_index"]) + paired_hex_delta
+			):
+				continue
+			var second_position := Coordinates.hex_index_to_world(
+				int(second_record["hex_index"]),
+				int(second_record["elevation"])
+			)
+			var delta := second_position - first_position
+			var span := absf(delta.dot(expected_tangent))
+			var cross_axis_error := absf(delta.dot(Vector3(
+				-expected_tangent.z, 0.0, expected_tangent.x
+			)))
+			if span < minimum_span or span > maximum_span or cross_axis_error > 0.2:
+				continue
+			var score := cross_axis_error * 10.0 + span
+			if score < best_score:
+				best_score = score
+				best_record = second_record
+		if best_record.is_empty():
+			continue
+		used_instance_ids[first_id] = true
+		used_instance_ids[int(best_record["instance_id"])] = true
+		var elevation := int(first_record["elevation"])
+		if not roots_by_elevation.has(elevation):
+			var elevation_root := Node3D.new()
+			elevation_root.name = "ARCAVES_SourceWallReliefsElevation%d" % elevation
+			_get_elevation_root(elevation).add_child(elevation_root)
+			roots_by_elevation[elevation] = elevation_root
+		_create_arcaves_wall_relief_pair(
+			roots_by_elevation[elevation],
+			first_record,
+			best_record,
+			relief,
+			trim_patch,
+			support_records
+		)
+		arcaves_wall_relief_count += 1
+	arcaves_wall_relief_unpaired_count = records.size() - used_instance_ids.size()
+
+
+func _create_arcaves_wall_relief_pair(
+	root: Node3D,
+	first_record: Dictionary,
+	second_record: Dictionary,
+	relief: Dictionary,
+	trim_patch: Dictionary,
+	support_records: Array[Dictionary]
+) -> void:
+	var elevation := int(first_record["elevation"])
+	var first_position := Coordinates.hex_index_to_world(int(first_record["hex_index"]), elevation)
+	var second_position := Coordinates.hex_index_to_world(int(second_record["hex_index"]), elevation)
+	var tangent := (second_position - first_position).normalized()
+	var normal := Vector3(-tangent.z, 0.0, tangent.x)
+	var center := (first_position + second_position) * 0.5
+	var support_file_lookup := {}
+	for file_value in relief.get("support_files", []):
+		support_file_lookup[String(file_value).to_lower()] = true
+	var nearest_support_position := Vector3.ZERO
+	var nearest_support_distance := INF
+	for support_record_value in support_records:
+		var support_record: Dictionary = support_record_value
+		if int(support_record.get("elevation", -1)) != elevation:
+			continue
+		var support_file := String(
+			support_record.get("art", {}).get("file_name", "")
+		).to_lower()
+		if not support_file_lookup.has(support_file):
+			continue
+		var support_position := Coordinates.hex_index_to_world(
+			int(support_record["hex_index"]),
+			elevation
+		)
+		var distance := support_position.distance_to(center)
+		if distance < nearest_support_distance:
+			nearest_support_distance = distance
+			nearest_support_position = support_position
+	if nearest_support_distance <= float(relief.get("maximum_support_distance", 3.0)):
+		center += normal * (nearest_support_position.dot(normal) - center.dot(normal))
+	else:
+		# The exact source composite shows that unsupported temple35/36 pairs are
+		# neither freestanding hoops nor a wall filling the entire endpoint span.
+		# Each half contains the arch plus a short masonry wing.  Reconstruct that
+		# local carrier and extend each wing only to the nearest MAP-confirmed
+		# centreline contact.  The invisible block records are useful topology
+		# anchors here: ignoring them leaves a literal black slot between the arch
+		# and the visible corner/end FRM one cell farther away.
+		var side_fill_widths := _arcaves_arch_side_fill_widths(
+			first_record,
+			second_record,
+			relief,
+			support_records
+		)
+		_create_arcaves_archway_pair(root, first_record, second_record, {
+			"wall_thickness": float(relief.get("depth", 0.28)),
+			"side_fill_width": float(relief.get("side_fill_width", 0.52)),
+			"side_fill_negative": float(side_fill_widths["negative"]),
+			"side_fill_positive": float(side_fill_widths["positive"]),
+			"opening_half_width": float(relief.get("inner_radius", 1.0)),
+			"ring_width": float(relief.get("ring_width", 0.18)),
+			"spring_height": float(relief.get("spring_height", 1.15)),
+			"ceiling_height": Coordinates.ELEVATION_HEIGHT,
+			"curve_segments": int(relief.get("curve_segments", 16)),
+			"wall_class": int(relief.get("wall_class", 1)),
+		}, trim_patch, false)
+		return
+	var inner_radius := float(relief.get("inner_radius", 1.0))
+	var ring_width := float(relief.get("ring_width", 0.18))
+	var spring_height := float(relief.get("spring_height", 1.15))
+	var depth := float(relief.get("depth", 0.28))
+	var curve_segments := int(relief.get("curve_segments", 16))
+	var trim_texture := _load_source_quad_texture(trim_patch)
+	if trim_texture == null:
+		push_warning("Missing rectified ARCAVES wall-relief trim patch")
+		return
+	var trim_material := _source_material(trim_texture, false, true)
+	trim_material.roughness = 0.94
+	var basis := Basis(tangent, Vector3.UP, normal)
+	for side_value in [-1.0, 1.0]:
+		var side := float(side_value)
+		var jamb_position := center + tangent * side * (inner_radius + ring_width * 0.5)
+		_create_archway_box(
+			root,
+			"WallReliefJamb",
+			Vector3(ring_width, spring_height, depth),
+			Transform3D(basis, jamb_position + Vector3.UP * spring_height * 0.5),
+			trim_material
+		)
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var outer_radius := inner_radius + ring_width
+	var half_depth := depth * 0.5
+	for index in curve_segments:
+		var angle_a := PI - PI * float(index) / float(curve_segments)
+		var angle_b := PI - PI * float(index + 1) / float(curve_segments)
+		var outer_a := Vector2(cos(angle_a) * outer_radius, spring_height + sin(angle_a) * outer_radius)
+		var outer_b := Vector2(cos(angle_b) * outer_radius, spring_height + sin(angle_b) * outer_radius)
+		var inner_a := Vector2(cos(angle_a) * inner_radius, spring_height + sin(angle_a) * inner_radius)
+		var inner_b := Vector2(cos(angle_b) * inner_radius, spring_height + sin(angle_b) * inner_radius)
+		var u_a := float(index) / float(curve_segments) * 4.0
+		var u_b := float(index + 1) / float(curve_segments) * 4.0
+		var outer_front_a := _archway_point(center, tangent, normal, outer_a, half_depth)
+		var outer_front_b := _archway_point(center, tangent, normal, outer_b, half_depth)
+		var inner_front_a := _archway_point(center, tangent, normal, inner_a, half_depth)
+		var inner_front_b := _archway_point(center, tangent, normal, inner_b, half_depth)
+		var outer_back_a := _archway_point(center, tangent, normal, outer_a, -half_depth)
+		var outer_back_b := _archway_point(center, tangent, normal, outer_b, -half_depth)
+		var inner_back_a := _archway_point(center, tangent, normal, inner_a, -half_depth)
+		var inner_back_b := _archway_point(center, tangent, normal, inner_b, -half_depth)
+		_add_archway_quad(surface, outer_front_a, outer_front_b, inner_front_b, inner_front_a, Vector2(u_a, 0.0), Vector2(u_b, 0.0), Vector2(u_b, 1.0), Vector2(u_a, 1.0))
+		_add_archway_quad(surface, outer_back_b, outer_back_a, inner_back_a, inner_back_b, Vector2(u_b, 0.0), Vector2(u_a, 0.0), Vector2(u_a, 1.0), Vector2(u_b, 1.0))
+		_add_archway_quad(surface, inner_front_a, inner_front_b, inner_back_b, inner_back_a, Vector2(u_a, 0.0), Vector2(u_b, 0.0), Vector2(u_b, 1.0), Vector2(u_a, 1.0))
+		_add_archway_quad(surface, outer_back_a, outer_back_b, outer_front_b, outer_front_a, Vector2(u_a, 0.0), Vector2(u_b, 0.0), Vector2(u_b, 1.0), Vector2(u_a, 1.0))
+	surface.generate_normals()
+	var mesh := surface.commit()
+	if mesh != null:
+		mesh.surface_set_material(0, trim_material)
+		var instance := MeshInstance3D.new()
+		instance.name = "SourceWallReliefArch"
+		instance.mesh = mesh
+		root.add_child(instance)
+	wall_segment_count += 3
+	wall_mesh_face_count += curve_segments * 8 + 24
+
+
+func _arcaves_arch_side_fill_widths(
+	first_record: Dictionary,
+	second_record: Dictionary,
+	relief: Dictionary,
+	support_records: Array[Dictionary]
+) -> Dictionary:
+	var elevation := int(first_record["elevation"])
+	var first_position := Coordinates.hex_index_to_world(int(first_record["hex_index"]), elevation)
+	var second_position := Coordinates.hex_index_to_world(int(second_record["hex_index"]), elevation)
+	var endpoint_delta := second_position - first_position
+	var tangent := _wall_tangent_for_class(int(relief.get("wall_class", 1)))
+	if endpoint_delta.dot(tangent) < 0.0:
+		tangent = -tangent
+	var normal := Vector3(-tangent.z, 0.0, tangent.x)
+	var center := (first_position + second_position) * 0.5
+	var half_endpoint_span := absf(endpoint_delta.dot(tangent)) * 0.5
+	var outer_radius := (
+		float(relief.get("inner_radius", 1.0))
+		+ float(relief.get("ring_width", 0.18))
+	)
+	var fallback_width := float(relief.get("side_fill_width", 0.52))
+	var contact_overlap := float(relief.get("contact_overlap", 0.55))
+	var maximum_contact_cross_error := float(relief.get("maximum_contact_cross_error", 0.7))
+	var maximum_contact_distance := float(relief.get("maximum_contact_distance", 4.25))
+	var nearest_contact := {"negative": INF, "positive": INF}
+	var excluded_ids := {
+		int(first_record["instance_id"]): true,
+		int(second_record["instance_id"]): true,
+	}
+	for support_record_value in support_records:
+		var support_record: Dictionary = support_record_value
+		if int(support_record.get("elevation", -1)) != elevation:
+			continue
+		if excluded_ids.has(int(support_record.get("instance_id", -1))):
+			continue
+		var support_position := Coordinates.hex_index_to_world(
+			int(support_record["hex_index"]),
+			elevation
+		)
+		var local_delta := support_position - center
+		var along := local_delta.dot(tangent)
+		var along_distance := absf(along)
+		if along_distance <= half_endpoint_span + 0.1:
+			continue
+		if along_distance > maximum_contact_distance:
+			continue
+		if absf(local_delta.dot(normal)) > maximum_contact_cross_error:
+			continue
+		var side_key := "negative" if along < 0.0 else "positive"
+		nearest_contact[side_key] = minf(
+			float(nearest_contact[side_key]),
+			along_distance
+		)
+	var result := {"negative": fallback_width, "positive": fallback_width}
+	for side_key_value in ["negative", "positive"]:
+		var side_key := String(side_key_value)
+		var contact_distance := float(nearest_contact[side_key])
+		if is_finite(contact_distance):
+			result[side_key] = maxf(
+			fallback_width,
+			contact_distance + contact_overlap - outer_radius
+		)
+	return result
+
+
+func _create_arcaves_archway_pair(
+	root: Node3D,
+	first_record: Dictionary,
+	second_record: Dictionary,
+	geometry: Dictionary,
+	trim_patch: Dictionary,
+	count_as_doorway: bool = true
+) -> void:
+	var elevation := int(first_record["elevation"])
+	var first_position := Coordinates.hex_index_to_world(int(first_record["hex_index"]), elevation)
+	var second_position := Coordinates.hex_index_to_world(int(second_record["hex_index"]), elevation)
+	var endpoint_delta := second_position - first_position
+	var tangent := endpoint_delta.normalized()
+	if geometry.has("wall_class"):
+		# Wall FRM records are isometric drawing anchors, not two points on the
+		# physical centreline of a wall.  Joining the anchors directly gives the
+		# portal a slightly different yaw from the canonical Fallout wall axis;
+		# in FPP that small error opens a wedge-shaped gap at both joins.  Keep
+		# the direction encoded by the pair, but snap its yaw to the grid axis.
+		var canonical_tangent := _wall_tangent_for_class(int(geometry["wall_class"]))
+		if endpoint_delta.dot(canonical_tangent) < 0.0:
+			canonical_tangent = -canonical_tangent
+		tangent = canonical_tangent
+	var normal := Vector3(-tangent.z, 0.0, tangent.x)
+	var span := absf(endpoint_delta.dot(tangent))
+	var thickness := float(geometry.get("wall_thickness", 0.28))
+	var ring_width := float(geometry.get("ring_width", 0.24))
+	var spring_height := float(geometry.get("spring_height", 1.2))
+	var ceiling_height := float(geometry.get("ceiling_height", Coordinates.ELEVATION_HEIGHT))
+	var curve_segments := int(geometry.get("curve_segments", 16))
+	var inner_radius := float(geometry.get("opening_half_width", 1.0))
+	var outer_radius := inner_radius + ring_width
+	var center := (first_position + second_position) * 0.5
+	var trim_texture := _load_source_quad_texture(trim_patch)
+	if trim_texture == null:
+		push_warning("Missing rectified ARCAVES arch trim patch")
+		return
+	var trim_material := _source_material(trim_texture, false, true)
+	trim_material.roughness = 0.94
+	var stone_material := _create_wall_material("stone")
+	var basis := Basis(tangent, Vector3.UP, normal)
+	var endpoint_overlap := float(geometry.get("endpoint_overlap", 0.0))
+	var side_fill_width := float(geometry.get("side_fill_width", -1.0))
+	if side_fill_width < 0.0:
+		side_fill_width = maxf(span * 0.5 - outer_radius + endpoint_overlap, 0.0)
+	if side_fill_width > 0.01:
+		for side_value in [-1.0, 1.0]:
+			var side := float(side_value)
+			var current_side_fill_width := side_fill_width
+			if side < 0.0 and geometry.has("side_fill_negative"):
+				current_side_fill_width = float(geometry["side_fill_negative"])
+			elif side > 0.0 and geometry.has("side_fill_positive"):
+				current_side_fill_width = float(geometry["side_fill_positive"])
+			var side_center := center + tangent * side * (
+				outer_radius + current_side_fill_width * 0.5
+			)
+			_create_archway_stone_pier(
+				root,
+				side_center,
+				tangent,
+				normal,
+				current_side_fill_width,
+				thickness,
+				stone_material
+			)
+	for side_value in [-1.0, 1.0]:
+		var side := float(side_value)
+		var jamb_position: Vector3 = center + tangent * side * (inner_radius + ring_width * 0.5)
+		_create_archway_box(
+			root,
+			"TrimJamb",
+			Vector3(ring_width, spring_height, thickness),
+			Transform3D(basis, jamb_position + Vector3.UP * spring_height * 0.5),
+			trim_material
+		)
+	_create_archway_curved_surfaces(
+		root,
+		center,
+		tangent,
+		normal,
+		outer_radius,
+		inner_radius,
+		spring_height,
+		ceiling_height,
+		thickness,
+		curve_segments,
+		trim_material,
+		stone_material
+	)
+	wall_segment_count += 6
+	wall_mesh_face_count += curve_segments * 12 + 48
+	if count_as_doorway:
+		arcaves_arch_surface_count += 1
+
+
+func _create_archway_box(
+	root: Node3D,
+	label: String,
+	size: Vector3,
+	transform: Transform3D,
+	material: Material
+) -> void:
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	mesh.material = material
+	var instance := MeshInstance3D.new()
+	instance.name = "%s%d" % [label, root.get_child_count()]
+	instance.mesh = mesh
+	instance.transform = transform
+	root.add_child(instance)
+
+
+func _create_archway_stone_pier(
+	root: Node3D,
+	center: Vector3,
+	tangent: Vector3,
+	normal: Vector3,
+	length: float,
+	thickness: float,
+	material: Material
+) -> void:
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_add_wall_prism(
+		surface,
+		center,
+		tangent,
+		normal,
+		length,
+		thickness,
+		Color.WHITE,
+		_arcaves_stone_atlas_world_period()
+	)
+	surface.generate_normals()
+	var mesh := surface.commit()
+	if mesh == null:
+		return
+	mesh.surface_set_material(0, material)
+	var instance := MeshInstance3D.new()
+	instance.name = "StonePortalPier%d" % root.get_child_count()
+	instance.mesh = mesh
+	root.add_child(instance)
+
+
+func _create_archway_curved_surfaces(
+	root: Node3D,
+	center: Vector3,
+	tangent: Vector3,
+	normal: Vector3,
+	outer_radius: float,
+	inner_radius: float,
+	spring_height: float,
+	ceiling_height: float,
+	thickness: float,
+	curve_segments: int,
+	trim_material: Material,
+	stone_material: Material
+) -> void:
+	var half_thickness := thickness * 0.5
+	var trim_surface := SurfaceTool.new()
+	trim_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var stone_surface := SurfaceTool.new()
+	stone_surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for index in curve_segments:
+		var angle_a := PI - PI * float(index) / float(curve_segments)
+		var angle_b := PI - PI * float(index + 1) / float(curve_segments)
+		var outer_a := Vector2(cos(angle_a) * outer_radius, spring_height + sin(angle_a) * outer_radius)
+		var outer_b := Vector2(cos(angle_b) * outer_radius, spring_height + sin(angle_b) * outer_radius)
+		var inner_a := Vector2(cos(angle_a) * inner_radius, spring_height + sin(angle_a) * inner_radius)
+		var inner_b := Vector2(cos(angle_b) * inner_radius, spring_height + sin(angle_b) * inner_radius)
+		var u_a := float(index) / float(curve_segments) * 4.0
+		var u_b := float(index + 1) / float(curve_segments) * 4.0
+		var outer_front_a := _archway_point(center, tangent, normal, outer_a, half_thickness)
+		var outer_front_b := _archway_point(center, tangent, normal, outer_b, half_thickness)
+		var inner_front_a := _archway_point(center, tangent, normal, inner_a, half_thickness)
+		var inner_front_b := _archway_point(center, tangent, normal, inner_b, half_thickness)
+		var outer_back_a := _archway_point(center, tangent, normal, outer_a, -half_thickness)
+		var outer_back_b := _archway_point(center, tangent, normal, outer_b, -half_thickness)
+		var inner_back_a := _archway_point(center, tangent, normal, inner_a, -half_thickness)
+		var inner_back_b := _archway_point(center, tangent, normal, inner_b, -half_thickness)
+		_add_archway_quad(trim_surface, outer_front_a, outer_front_b, inner_front_b, inner_front_a, Vector2(u_a, 0.0), Vector2(u_b, 0.0), Vector2(u_b, 1.0), Vector2(u_a, 1.0))
+		_add_archway_quad(trim_surface, outer_back_b, outer_back_a, inner_back_a, inner_back_b, Vector2(u_b, 0.0), Vector2(u_a, 0.0), Vector2(u_a, 1.0), Vector2(u_b, 1.0))
+		_add_archway_quad(trim_surface, inner_front_a, inner_front_b, inner_back_b, inner_back_a, Vector2(u_a, 0.0), Vector2(u_b, 0.0), Vector2(u_b, 1.0), Vector2(u_a, 1.0))
+		_add_archway_quad(trim_surface, outer_back_a, outer_back_b, outer_front_b, outer_front_a, Vector2(u_a, 0.0), Vector2(u_b, 0.0), Vector2(u_b, 1.0), Vector2(u_a, 1.0))
+		var top_a_front := _archway_point(center, tangent, normal, Vector2(outer_a.x, ceiling_height), half_thickness)
+		var top_b_front := _archway_point(center, tangent, normal, Vector2(outer_b.x, ceiling_height), half_thickness)
+		var top_a_back := _archway_point(center, tangent, normal, Vector2(outer_a.x, ceiling_height), -half_thickness)
+		var top_b_back := _archway_point(center, tangent, normal, Vector2(outer_b.x, ceiling_height), -half_thickness)
+		_add_archway_quad(stone_surface, top_a_front, top_b_front, outer_front_b, outer_front_a, Vector2(outer_a.x, 0.0), Vector2(outer_b.x, 0.0), Vector2(outer_b.x, ceiling_height - outer_b.y), Vector2(outer_a.x, ceiling_height - outer_a.y))
+		_add_archway_quad(stone_surface, top_b_back, top_a_back, outer_back_a, outer_back_b, Vector2(outer_b.x, 0.0), Vector2(outer_a.x, 0.0), Vector2(outer_a.x, ceiling_height - outer_a.y), Vector2(outer_b.x, ceiling_height - outer_b.y))
+	trim_surface.generate_normals()
+	var trim_mesh := trim_surface.commit()
+	if trim_mesh != null:
+		trim_mesh.surface_set_material(0, trim_material)
+		var trim_instance := MeshInstance3D.new()
+		trim_instance.name = "SourceTrimArch"
+		trim_instance.mesh = trim_mesh
+		root.add_child(trim_instance)
+	stone_surface.generate_normals()
+	var stone_mesh := stone_surface.commit()
+	if stone_mesh != null:
+		stone_mesh.surface_set_material(0, stone_material)
+		var stone_instance := MeshInstance3D.new()
+		stone_instance.name = "StoneArchSpandrel"
+		stone_instance.mesh = stone_mesh
+		root.add_child(stone_instance)
+
+
+func _archway_point(
+	center: Vector3,
+	tangent: Vector3,
+	normal: Vector3,
+	point: Vector2,
+	depth: float
+) -> Vector3:
+	return center + tangent * point.x + Vector3.UP * point.y + normal * depth
+
+
+func _add_archway_quad(
+	surface: SurfaceTool,
+	a: Vector3,
+	b: Vector3,
+	c: Vector3,
+	d: Vector3,
+	uv_a: Vector2,
+	uv_b: Vector2,
+	uv_c: Vector2,
+	uv_d: Vector2
+) -> void:
+	_add_textured_triangle(surface, a, b, c, uv_a, uv_b, uv_c, Color.WHITE)
+	_add_textured_triangle(surface, a, c, d, uv_a, uv_c, uv_d, Color.WHITE)
+
+
+func _create_wall_material(material_key: String) -> Material:
+	if (
+		material_key == "stone"
+		and _map_stem(String(scene_data["map"]["name"])) == "arcaves"
+	):
+		var rule: Dictionary = source_geometry_families.get("arcaves_temple_stone", {})
+		var variant_patches: Array = rule.get("source_variant_patches", [])
+		var variant_texture := _load_source_patch_strip_texture(variant_patches)
+		if variant_texture != null:
+			var variant_material := _source_material(variant_texture, false, true)
+			variant_material.roughness = 0.92
+			return variant_material
+		var source_patch: Dictionary = rule.get("source_patch", {})
+		var cache_path := String(source_patch.get("cache_path", ""))
+		var rect: Array = source_patch.get("rect", [])
+		if not cache_path.is_empty() and rect.size() == 4:
+			var texture := _load_source_crop_texture(
+				cache_path,
+				Rect2i(int(rect[0]), int(rect[1]), int(rect[2]), int(rect[3]))
+			)
+			if texture != null:
+				var source_material := _source_material(texture, false, true)
+				source_material.roughness = 0.92
+				return source_material
+	var fallback := ShaderMaterial.new()
+	fallback.shader = StoneWallShader if material_key == "stone" else CaveWallShader
+	return fallback
+
+
+func _create_arcaves_stone_columns(records: Array[Dictionary]) -> void:
+	if records.is_empty():
+		return
+	var rule: Dictionary = source_geometry_families.get("arcaves_temple_stone", {})
+	var geometry: Dictionary = rule.get("column_geometry", {})
+	var column_mesh := BoxMesh.new()
+	column_mesh.size = Vector3(
+		float(geometry.get("width", 0.68)),
+		float(geometry.get("height", Coordinates.ELEVATION_HEIGHT)),
+		float(geometry.get("depth", 0.68))
+	)
+	var column_material: Material = _create_wall_material("stone")
+	var column_patch: Dictionary = rule.get("column_patch", {})
+	var column_texture := _load_source_quad_texture(column_patch)
+	if column_texture != null:
+		var source_column_material := _source_material(column_texture, false, true)
+		source_column_material.roughness = 0.94
+		source_column_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+		column_material = source_column_material
+	column_mesh.material = column_material
+	var records_by_elevation := {}
+	for record in records:
+		var elevation := int(record["elevation"])
+		if not records_by_elevation.has(elevation):
+			records_by_elevation[elevation] = []
+		records_by_elevation[elevation].append(record)
+	for elevation_value in records_by_elevation:
+		var elevation := int(elevation_value)
+		var layer_records: Array = records_by_elevation[elevation]
+		var multi_mesh := MultiMesh.new()
+		multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
+		multi_mesh.mesh = column_mesh
+		multi_mesh.instance_count = layer_records.size()
+		for index in layer_records.size():
+			var record: Dictionary = layer_records[index]
+			var position := Coordinates.hex_index_to_world(int(record["hex_index"]), elevation)
+			position.y += column_mesh.size.y * 0.5
+			var direction := Coordinates.direction_to_world(
+				int(record["hex_index"]),
+				int(record.get("rotation", 0))
+			)
+			var yaw := atan2(-direction.x, -direction.z)
+			multi_mesh.set_instance_transform(
+				index,
+				Transform3D(Basis(Vector3.UP, yaw), position)
+			)
+		var instance := MultiMeshInstance3D.new()
+		instance.name = "ARCAVES_SourceStoneColumnsElevation%d" % elevation
+		instance.multimesh = multi_mesh
+		_get_elevation_root(elevation).add_child(instance)
+		wall_segment_count += layer_records.size()
+		wall_mesh_face_count += layer_records.size() * 12
+
+
+func _is_artemple_block_wall(record: Dictionary) -> bool:
+	if _map_stem(String(scene_data["map"]["name"])) != "artemple":
+		return false
+	var art_path := String(record.get("art", {}).get("path", "")).replace("\\", "/").to_lower()
+	return art_path == "art/walls/block.frm"
+
+
+func _create_artemple_block_wall_geometry(records: Array[Dictionary]) -> void:
+	if records.is_empty():
+		return
+	var rule: Dictionary = source_geometry_families.get("artemple_temple01_08", {})
+	var carrier: Dictionary = rule.get("carrier_geometry", {})
+	var source_patch: Dictionary = rule.get("source_patch", {})
+	var cache_path := String(source_patch.get("cache_path", ""))
+	var rect: Array = source_patch.get("rect", [])
+	if cache_path.is_empty() or rect.size() != 4:
+		push_warning("ARTEMPLE source wall rule is incomplete")
+		return
+	var texture := _load_source_crop_texture(
+		cache_path,
+		Rect2i(int(rect[0]), int(rect[1]), int(rect[2]), int(rect[3]))
+	)
+	if texture == null:
+		push_warning("ARTEMPLE source wall texture is missing")
+		return
+	var material := _source_material(texture, false, true)
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	material.roughness = 0.94
+	material.uv1_scale = Vector3(1.0, 1.0, 1.0)
+
+	var wall_height := float(carrier.get("height", 4.2))
+	var wall_thickness := float(carrier.get("wall_thickness", 0.42))
+	var segment_mesh := BoxMesh.new()
+	segment_mesh.size = Vector3(wall_thickness, wall_height, 1.08)
+	segment_mesh.material = material
+	var joint_mesh := CylinderMesh.new()
+	joint_mesh.height = wall_height
+	joint_mesh.bottom_radius = wall_thickness * 0.62
+	joint_mesh.top_radius = joint_mesh.bottom_radius
+	joint_mesh.radial_segments = 6
+	joint_mesh.rings = 1
+	joint_mesh.material = material
+
+	var records_by_elevation := {}
+	for record in records:
+		var elevation := int(record["elevation"])
+		if not records_by_elevation.has(elevation):
+			records_by_elevation[elevation] = []
+		records_by_elevation[elevation].append(record)
+	for elevation_value in records_by_elevation:
+		var elevation := int(elevation_value)
+		var layer_records: Array = records_by_elevation[elevation]
+		var tiles := {}
+		for record_value in layer_records:
+			var record: Dictionary = record_value
+			tiles[int(record["hex_index"])] = true
+		var segment_transforms: Array[Transform3D] = []
+		for tile_value in tiles:
+			var tile := int(tile_value)
+			var origin := Coordinates.hex_index_to_world(tile, elevation)
+			for rotation in 6:
+				var neighbor := Coordinates.tile_in_direction(tile, rotation)
+				if neighbor <= tile or not tiles.has(neighbor):
+					continue
+				var target := Coordinates.hex_index_to_world(neighbor, elevation)
+				var tangent := (target - origin).normalized()
+				var yaw := atan2(-tangent.x, -tangent.z)
+				var center := (origin + target) * 0.5 + Vector3.UP * wall_height * 0.5
+				segment_transforms.append(Transform3D(Basis(Vector3.UP, yaw), center))
+
+		var segment_multi_mesh := MultiMesh.new()
+		segment_multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
+		segment_multi_mesh.mesh = segment_mesh
+		segment_multi_mesh.instance_count = segment_transforms.size()
+		for index in segment_transforms.size():
+			segment_multi_mesh.set_instance_transform(index, segment_transforms[index])
+		var segment_instances := MultiMeshInstance3D.new()
+		segment_instances.name = "ARTEMPLE_MapWallSegmentsElevation%d" % elevation
+		segment_instances.multimesh = segment_multi_mesh
+		_get_elevation_root(elevation).add_child(segment_instances)
+
+		var joint_multi_mesh := MultiMesh.new()
+		joint_multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
+		joint_multi_mesh.mesh = joint_mesh
+		joint_multi_mesh.instance_count = layer_records.size()
+		for index in layer_records.size():
+			var record: Dictionary = layer_records[index]
+			var position := Coordinates.hex_index_to_world(int(record["hex_index"]), elevation)
+			position.y += wall_height * 0.5
+			var basis := Basis(Vector3.UP, PI / 6.0)
+			joint_multi_mesh.set_instance_transform(index, Transform3D(basis, position))
+		var joint_instances := MultiMeshInstance3D.new()
+		joint_instances.name = "ARTEMPLE_MapWallJointsElevation%d" % elevation
+		joint_instances.multimesh = joint_multi_mesh
+		_get_elevation_root(elevation).add_child(joint_instances)
+		wall_segment_count += layer_records.size()
+		wall_mesh_face_count += segment_transforms.size() * 12 + layer_records.size() * 24
+	wall_mesh_elevation_count += records_by_elevation.size()
 
 
 func _wall_material_key(record: Dictionary) -> String:
 	var art: Dictionary = record.get("art", {})
 	var art_path := String(art.get("path", "")).replace("\\", "/").to_lower()
+	if _is_arcaves_wall_block_carrier(record):
+		return "stone"
 	return "stone" if art_path.begins_with("art/walls/temple") else "cave"
 
 
-func _add_wall_cell_volume(
+func _is_arcaves_wall_block_carrier(record: Dictionary) -> bool:
+	if _map_stem(String(scene_data["map"]["name"])) != "arcaves":
+		return false
+	var art_path := String(record.get("art", {}).get("path", ""))
+	return art_path.replace("\\", "/").to_lower() == "art/walls/block.frm"
+
+
+func _select_arcaves_block_bridges(
+	block_records: Array,
+	visible_records: Array
+) -> Array[Dictionary]:
+	var visible_by_tile := {}
+	for record_value in visible_records:
+		var record: Dictionary = record_value
+		visible_by_tile[int(record["hex_index"])] = true
+	var selected: Array[Dictionary] = []
+	var opposite_pairs := [
+		{"directions": [0, 3], "wall_class": 0},
+		{"directions": [1, 4], "wall_class": 0},
+		{"directions": [2, 5], "wall_class": 1},
+	]
+	for record_value in block_records:
+		var record: Dictionary = record_value
+		var tile := int(record["hex_index"])
+		var matching_classes: Array[int] = []
+		for pair_value in opposite_pairs:
+			var pair: Dictionary = pair_value
+			var directions: Array = pair["directions"]
+			var first_neighbor := Coordinates.tile_in_direction(tile, int(directions[0]))
+			var second_neighbor := Coordinates.tile_in_direction(tile, int(directions[1]))
+			if (
+				first_neighbor != tile
+				and second_neighbor != tile
+				and visible_by_tile.has(first_neighbor)
+				and visible_by_tile.has(second_neighbor)
+			):
+				matching_classes.append(int(pair["wall_class"]))
+		# Junction markers are deliberately rejected: without a source-visible
+		# carrier there is no evidence which branch should be closed in FPP.
+		if matching_classes.size() != 1:
+			continue
+		var bridge_record: Dictionary = record.duplicate(true)
+		bridge_record["_wall_class_override"] = matching_classes[0]
+		selected.append(bridge_record)
+	return selected
+
+
+func _add_wall_segment_volume(
 	surface: SurfaceTool,
 	records: Array,
 	elevation: int,
-	occupied_cells: Dictionary
+	topology_hints: Dictionary
 ) -> void:
+	# Fallout may layer several wall sprites on the same logical hex to compose
+	# one isometric corner. In 3D that must remain one wall segment; drawing every
+	# layer produces overlapping faces and shimmer.
 	var records_by_cell := {}
 	for record_value in records:
-		var record: Dictionary = record_value
-		records_by_cell[int(record["hex_index"])] = record
+		var candidate: Dictionary = record_value
+		var tile := int(candidate["hex_index"])
+		if not records_by_cell.has(tile):
+			records_by_cell[tile] = candidate
+			continue
+		var previous: Dictionary = records_by_cell[tile]
+		var candidate_width := int(candidate.get("art", {}).get("frame", {}).get("width", 0))
+		var previous_width := int(previous.get("art", {}).get("frame", {}).get("width", 0))
+		if candidate_width > previous_width:
+			records_by_cell[tile] = candidate
+
+	var wall_class_by_tile := _wall_classes_by_local_topology(
+		records_by_cell,
+		topology_hints
+	)
+
+	# Class-zero wall anchors form a zig-zag on the hex grid: two consecutive
+	# hex edges describe one straight square-grid wall. A plain flood fill joins
+	# parallel runs through their shared junction anchor and then averages them
+	# into a false wall across the room. Group graph edges by the normal coordinate
+	# of their midpoint instead. Every physical run then owns one stable lane;
+	# a junction anchor may intentionally participate in two lanes.
+	var lane_graphs := {}
+	var covered_tiles := {}
 	for tile_value in records_by_cell:
 		var tile := int(tile_value)
-		var center := Coordinates.hex_index_to_world(tile, elevation)
-		var color := _debug_wall_color(records_by_cell[tile])
-		for direction_index in 6:
-			var neighbor := Coordinates.tile_in_direction(tile, direction_index)
-			if neighbor != tile and occupied_cells.has(neighbor):
+		var wall_class := int(wall_class_by_tile[tile])
+		var tangent := _wall_tangent_for_class(wall_class)
+		var normal := Vector3(-tangent.z, 0.0, tangent.x)
+		var neighbor_directions := [2, 5] if wall_class == 1 else [0, 1, 3, 4]
+		for direction_value in neighbor_directions:
+			var neighbor := Coordinates.tile_in_direction(tile, int(direction_value))
+			if (
+				neighbor <= tile
+				or not records_by_cell.has(neighbor)
+				or int(wall_class_by_tile.get(neighbor, -1)) != wall_class
+			):
 				continue
-			var outward := Coordinates.direction_to_world(tile, direction_index)
-			var tangent := Vector3(-outward.z, 0.0, outward.x)
-			var face_center := center + outward * 0.5
-			var half_side := 0.292
-			var start := face_center - tangent * half_side
-			var end := face_center + tangent * half_side
-			var start_top := start + Vector3.UP * Coordinates.ELEVATION_HEIGHT
-			var end_top := end + Vector3.UP * Coordinates.ELEVATION_HEIGHT
-			_add_colored_triangle(surface, start, end_top, end, color)
-			_add_colored_triangle(surface, start, start_top, end_top, color)
-			wall_mesh_face_count += 2
+			var tile_normal := Coordinates.hex_index_to_world(tile, elevation).dot(normal)
+			var neighbor_normal := (
+				Coordinates.hex_index_to_world(neighbor, elevation).dot(normal)
+			)
+			var lane_coordinate := (tile_normal + neighbor_normal) * 0.5
+			var lane_key := "%d:%d" % [wall_class, roundi(lane_coordinate * 4.0)]
+			if not lane_graphs.has(lane_key):
+				lane_graphs[lane_key] = {
+					"wall_class": wall_class,
+					"adjacency": {},
+				}
+			var lane: Dictionary = lane_graphs[lane_key]
+			var adjacency: Dictionary = lane["adjacency"]
+			if not adjacency.has(tile):
+				adjacency[tile] = []
+			if not adjacency.has(neighbor):
+				adjacency[neighbor] = []
+			adjacency[tile].append(neighbor)
+			adjacency[neighbor].append(tile)
+			covered_tiles[tile] = true
+			covered_tiles[neighbor] = true
+
+	for lane_value in lane_graphs.values():
+		var lane: Dictionary = lane_value
+		var adjacency: Dictionary = lane["adjacency"]
+		var remaining_lane_tiles := {}
+		for tile_value in adjacency:
+			remaining_lane_tiles[int(tile_value)] = true
+		while not remaining_lane_tiles.is_empty():
+			var seed_tile := int(remaining_lane_tiles.keys()[0])
+			remaining_lane_tiles.erase(seed_tile)
+			var component: Array[int] = []
+			var queue: Array[int] = [seed_tile]
+			var queue_index := 0
+			while queue_index < queue.size():
+				var current_tile := queue[queue_index]
+				queue_index += 1
+				component.append(current_tile)
+				for neighbor_value in adjacency[current_tile]:
+					var neighbor := int(neighbor_value)
+					if remaining_lane_tiles.has(neighbor):
+						remaining_lane_tiles.erase(neighbor)
+						queue.append(neighbor)
+			_emit_straight_wall_component(
+				surface,
+				component,
+				records_by_cell,
+				int(lane["wall_class"]),
+				elevation
+			)
+
+	for tile_value in records_by_cell:
+		var tile := int(tile_value)
+		if covered_tiles.has(tile):
+			continue
+		_emit_straight_wall_component(
+			surface,
+			[tile],
+			records_by_cell,
+			int(wall_class_by_tile[tile]),
+			elevation
+		)
+	wall_composite_layer_count += records.size() - records_by_cell.size()
+
+
+func _wall_classes_by_local_topology(
+	records_by_cell: Dictionary,
+	topology_hints: Dictionary
+) -> Dictionary:
+	# A Fallout isometric wall run alternates wide front-face FRMs with narrow
+	# side/cap FRMs.  Classifying an entire FRM family from sprite width gives
+	# those layers different 3D axes and turns one straight run into a maze of
+	# perpendicular slabs.  MAP adjacency is the authority: directions 0/1 and
+	# their opposites form one physical axis, while directions 2/5 form the
+	# other.  Sprite width is used only for genuinely ambiguous junctions.
+	var wall_class_by_tile := {}
+	var occupied_tiles := records_by_cell.duplicate()
+	occupied_tiles.merge(topology_hints, true)
+	var class_zero_directions := [0, 1, 3, 4]
+	var class_one_directions := [2, 5]
+	for tile_value in records_by_cell:
+		var tile := int(tile_value)
+		var record: Dictionary = records_by_cell[tile]
+		if record.has("_wall_class_override"):
+			wall_class_by_tile[tile] = int(record["_wall_class_override"])
+			continue
+		var class_zero_score := 0
+		var class_one_score := 0
+		for direction_value in class_zero_directions:
+			var neighbor := Coordinates.tile_in_direction(tile, int(direction_value))
+			class_zero_score += int(occupied_tiles.has(neighbor))
+		for direction_value in class_one_directions:
+			var neighbor := Coordinates.tile_in_direction(tile, int(direction_value))
+			class_one_score += int(occupied_tiles.has(neighbor))
+		if class_zero_score > class_one_score:
+			wall_class_by_tile[tile] = 0
+		elif class_one_score > class_zero_score:
+			wall_class_by_tile[tile] = 1
+		else:
+			var source_width := float(record.get("art", {}).get("frame", {}).get("width", 16))
+			wall_class_by_tile[tile] = 0 if source_width >= 26.0 else 1
+	return wall_class_by_tile
+
+
+func _emit_straight_wall_component(
+	surface: SurfaceTool,
+	component: Array[int],
+	records_by_cell: Dictionary,
+	wall_class: int,
+	elevation: int
+) -> void:
+	if component.is_empty():
+		return
+	var tangent := _wall_tangent_for_class(wall_class)
+	var normal := Vector3(-tangent.z, 0.0, tangent.x)
+	var minimum_along := INF
+	var maximum_along := -INF
+	var normal_sum := 0.0
+	var minimum_normal := INF
+	var maximum_normal := -INF
+	var minimum_tile := component[0]
+	var maximum_tile := component[0]
+	for tile in component:
+		var position := Coordinates.hex_index_to_world(tile, elevation)
+		var along := position.dot(tangent)
+		if along < minimum_along:
+			minimum_tile = tile
+		if along > maximum_along:
+			maximum_tile = tile
+		minimum_along = minf(minimum_along, along)
+		maximum_along = maxf(maximum_along, along)
+		var normal_coordinate := position.dot(normal)
+		normal_sum += normal_coordinate
+		minimum_normal = minf(minimum_normal, normal_coordinate)
+		maximum_normal = maxf(maximum_normal, normal_coordinate)
+	var normal_span := maximum_normal - minimum_normal
+	wall_maximum_normal_span = maxf(wall_maximum_normal_span, normal_span)
+	if normal_span > 0.51:
+		wall_nonstraight_component_count += 1
+		var normal_samples: Array[Dictionary] = []
+		for tile in component:
+			var sample_position := Coordinates.hex_index_to_world(tile, elevation)
+			normal_samples.append({
+				"tile": tile,
+				"along": sample_position.dot(tangent),
+				"normal": sample_position.dot(normal),
+			})
+		wall_nonstraight_components.append({
+			"elevation": elevation,
+			"wall_class": wall_class,
+			"normal_span": normal_span,
+			"samples": normal_samples,
+		})
+	var center := (
+		tangent * ((minimum_along + maximum_along) * 0.5)
+		+ normal * (normal_sum / float(component.size()))
+	)
+	center.y = float(elevation) * Coordinates.ELEVATION_HEIGHT
+	var length := maximum_along - minimum_along + 1.12
+	var record: Dictionary = records_by_cell[component[0]]
+	if component.size() == 1:
+		var source_width := float(record.get("art", {}).get("frame", {}).get("width", 16))
+		var reference_width := 32.0 if source_width >= 26.0 else 16.0
+		length = clampf(source_width / reference_width * 1.08, 1.08, 2.9)
+	var texture_world_period := _wall_texture_world_period(record)
+	var u_offset := float(posmod(component.min(), 4)) * 0.25
+	var final_length := length + 0.12
+	_add_wall_prism(
+		surface,
+		center,
+		tangent,
+		normal,
+		final_length,
+		0.22,
+		_debug_wall_color(record),
+		texture_world_period,
+		u_offset
+	)
+	var tile_lookup := {}
+	for tile in component:
+		tile_lookup[tile] = true
+	wall_carrier_segments.append({
+		"center": center,
+		"tangent": tangent,
+		"normal": normal,
+		"length": final_length,
+		"thickness": 0.22,
+		"texture_world_period": texture_world_period,
+		"u_offset": u_offset,
+		"color": _debug_wall_color(record),
+		"elevation": elevation,
+		"material_key": _wall_material_key(record),
+		"terminal_tiles": [minimum_tile, maximum_tile],
+		"tile_lookup": tile_lookup,
+		"normal_span": normal_span,
+	})
+	wall_segment_count += 1
+
+
+func _wall_texture_world_period(record: Dictionary) -> float:
+	if _map_stem(String(scene_data["map"]["name"])) != "arcaves":
+		return 1.08
+	if _wall_material_key(record) != "stone":
+		return 1.08
+	return _arcaves_stone_atlas_world_period()
+
+
+func _audit_wall_carrier_seams() -> void:
+	if _map_stem(String(scene_data["map"]["name"])) != "arcaves":
+		return
+	var candidate_by_key := {}
+	for segment_index in wall_carrier_segments.size():
+		var segment: Dictionary = wall_carrier_segments[segment_index]
+		var center: Vector3 = segment["center"]
+		var tangent: Vector3 = segment["tangent"]
+		var half_length := float(segment["length"]) * 0.5
+		var endpoints := [center - tangent * half_length, center + tangent * half_length]
+		var terminal_tiles: Array = segment["terminal_tiles"]
+		for endpoint_index in 2:
+			var endpoint: Vector3 = endpoints[endpoint_index]
+			var terminal_tile := int(terminal_tiles[endpoint_index])
+			var best_gap := INF
+			var best_center := Vector3.ZERO
+			var best_other_index := -1
+			for other_index in wall_carrier_segments.size():
+				if other_index == segment_index:
+					continue
+				var other: Dictionary = wall_carrier_segments[other_index]
+				if int(other["elevation"]) != int(segment["elevation"]):
+					continue
+				if not _wall_terminal_contacts_segment(terminal_tile, other):
+					continue
+				var closest := _closest_point_on_wall_carrier(endpoint, other)
+				var other_tangent: Vector3 = other["tangent"]
+				var alignment := absf(tangent.dot(other_tangent))
+				var delta := closest - endpoint
+				var gap := Vector2(
+					delta.x,
+					delta.z
+				).length()
+				if alignment > 0.95:
+					var normal_separation := absf(delta.dot(segment["normal"]))
+					if normal_separation > 0.16:
+						continue
+				elif gap > 0.48:
+					continue
+				if gap < best_gap:
+					best_gap = gap
+					best_center = (endpoint + closest) * 0.5
+					best_other_index = other_index
+			if best_other_index < 0 or best_gap < 0.16 or best_gap > 0.58:
+				continue
+			var quantized_x := roundi(best_center.x * 4.0)
+			var quantized_z := roundi(best_center.z * 4.0)
+			var key := "%d:%d:%d" % [
+				int(segment["elevation"]),
+				quantized_x,
+				quantized_z,
+			]
+			if candidate_by_key.has(key):
+				var previous: Dictionary = candidate_by_key[key]
+				if best_gap <= float(previous["gap"]):
+					continue
+			var other: Dictionary = wall_carrier_segments[best_other_index]
+			var selected_other_tangent: Vector3 = other["tangent"]
+			candidate_by_key[key] = {
+				"center": best_center,
+				"endpoint": endpoint,
+				"contact": _closest_point_on_wall_carrier(endpoint, other),
+				"elevation": int(segment["elevation"]),
+				"terminal_tile": terminal_tile,
+				"endpoint_index": endpoint_index,
+				"gap": best_gap,
+				"material_key": (
+					"stone"
+					if (
+						String(segment["material_key"]) == "stone"
+						or String(other["material_key"]) == "stone"
+					)
+					else "cave"
+				),
+				"first_segment": segment_index,
+				"second_segment": best_other_index,
+				"alignment": absf(tangent.dot(selected_other_tangent)),
+			}
+	wall_seam_candidates.assign(candidate_by_key.values())
+	wall_seam_candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a["gap"]) > float(b["gap"])
+	)
+	_write_wall_seam_audit()
+	if not _has_user_argument("--disable-seam-connectors"):
+		_create_wall_seam_connectors()
+
+
+func _wall_terminal_contacts_segment(tile: int, segment: Dictionary) -> bool:
+	var tile_lookup: Dictionary = segment["tile_lookup"]
+	if tile_lookup.has(tile):
+		return true
+	for direction in 6:
+		var neighbor := Coordinates.tile_in_direction(tile, direction)
+		if neighbor != tile and tile_lookup.has(neighbor):
+			return true
+	return false
+
+
+func _closest_point_on_wall_carrier(point: Vector3, segment: Dictionary) -> Vector3:
+	var center: Vector3 = segment["center"]
+	var tangent: Vector3 = segment["tangent"]
+	var half_length := float(segment["length"]) * 0.5
+	var along := clampf((point - center).dot(tangent), -half_length, half_length)
+	return center + tangent * along
+
+
+func _write_wall_seam_audit() -> void:
+	var serializable_candidates: Array[Dictionary] = []
+	for candidate in wall_seam_candidates:
+		serializable_candidates.append({
+			"center": _vector_to_array(candidate["center"]),
+			"endpoint": _vector_to_array(candidate["endpoint"]),
+			"contact": _vector_to_array(candidate["contact"]),
+			"elevation": int(candidate["elevation"]),
+			"terminal_tile": int(candidate["terminal_tile"]),
+			"endpoint_index": int(candidate["endpoint_index"]),
+			"gap": float(candidate["gap"]),
+			"material_key": String(candidate["material_key"]),
+			"first_segment": int(candidate["first_segment"]),
+			"second_segment": int(candidate["second_segment"]),
+			"alignment": float(candidate["alignment"]),
+		})
+	var evidence := {
+		"schema": "fo2remix.wall-seam-audit-v1",
+		"map": scene_data["map"]["name"],
+		"carrier_segments": wall_carrier_segments.size(),
+		"candidate_count": serializable_candidates.size(),
+		"minimum_gap": 0.16,
+		"maximum_gap": 0.58,
+		"nonstraight_components": wall_nonstraight_components,
+		"candidates": serializable_candidates,
+	}
+	var path := ProjectSettings.globalize_path(WALL_SEAM_AUDIT_PATH)
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		push_warning("Could not write wall seam audit: %s" % path)
+		return
+	file.store_string(JSON.stringify(evidence, "  "))
+	file.close()
+
+
+func _create_wall_seam_connectors() -> void:
+	var candidates_by_group := {}
+	for candidate in wall_seam_candidates:
+		var key := "%d:%s" % [
+			int(candidate["elevation"]),
+			String(candidate["material_key"]),
+		]
+		if not candidates_by_group.has(key):
+			candidates_by_group[key] = []
+		candidates_by_group[key].append(candidate)
+	for key_value in candidates_by_group:
+		var candidates: Array = candidates_by_group[key_value]
+		var first: Dictionary = candidates[0]
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for candidate_value in candidates:
+			var candidate: Dictionary = candidate_value
+			var endpoint: Vector3 = candidate["endpoint"]
+			var contact: Vector3 = candidate["contact"]
+			var delta := contact - endpoint
+			var gap := Vector2(delta.x, delta.z).length()
+			if gap <= 0.001:
+				continue
+			var source_segment: Dictionary = wall_carrier_segments[int(candidate["first_segment"])]
+			var tangent: Vector3 = source_segment["tangent"]
+			var normal := Vector3(-tangent.z, 0.0, tangent.x)
+			var texture_world_period := float(source_segment["texture_world_period"])
+			var connector_length := gap + 0.12
+			var connector_repeat := connector_length / maxf(texture_world_period, 0.01)
+			var u_offset := float(source_segment["u_offset"])
+			if int(candidate["endpoint_index"]) == 0:
+				u_offset -= connector_repeat
+			else:
+				u_offset += float(source_segment["length"]) / maxf(texture_world_period, 0.01)
+			_add_wall_prism(
+				surface,
+				(endpoint + contact) * 0.5,
+				tangent,
+				normal,
+				connector_length,
+				0.22,
+				source_segment["color"],
+				texture_world_period,
+				u_offset
+			)
+		var mesh := surface.commit()
+		if mesh == null:
+			continue
+		mesh.surface_set_material(0, _create_wall_material(String(first["material_key"])))
+		var instance := MeshInstance3D.new()
+		instance.name = "WallSeamConnectors%s" % String(key_value).replace(":", "_")
+		instance.mesh = mesh
+		_get_elevation_root(int(first["elevation"])).add_child(instance)
+		wall_seam_connector_count += candidates.size()
+
+
+func _arcaves_stone_atlas_world_period() -> float:
+	var rule: Dictionary = source_geometry_families.get("arcaves_temple_stone", {})
+	var variant_count := int(rule.get("source_variant_patches", []).size())
+	return float(rule.get("source_variant_world_width", 1.08)) * maxf(float(variant_count), 1.0)
+
+
+func _wall_tangent_for_class(wall_class: int) -> Vector3:
+	return (
+		Vector3(1.0, 0.0, 2.0 * Coordinates.SQRT_3_OVER_2).normalized()
+		if wall_class == 1
+		else Vector3(1.5, 0.0, -Coordinates.SQRT_3_OVER_2).normalized()
+	)
+
+
+func _add_wall_prism(
+	surface: SurfaceTool,
+	center: Vector3,
+	tangent: Vector3,
+	normal: Vector3,
+	length: float,
+	thickness: float,
+	color: Color,
+	texture_world_period: float = 1.08,
+	u_offset: float = 0.0
+) -> void:
+	var along := tangent * length * 0.5
+	var across := normal * thickness * 0.5
+	var bottom_a := center - along - across
+	var bottom_b := center + along - across
+	var bottom_c := center + along + across
+	var bottom_d := center - along + across
+	var up := Vector3.UP * Coordinates.ELEVATION_HEIGHT
+	var top_a := bottom_a + up
+	var top_b := bottom_b + up
+	var top_c := bottom_c + up
+	var top_d := bottom_d + up
+	var horizontal_repeat := maxf(length / maxf(texture_world_period, 0.01), 0.01)
+	var u_start := u_offset
+	var u_end := u_offset + horizontal_repeat
+
+	_add_textured_triangle(
+		surface, bottom_a, top_b, bottom_b,
+		Vector2(u_start, 1.0), Vector2(u_end, 0.0), Vector2(u_end, 1.0), color
+	)
+	_add_textured_triangle(
+		surface, bottom_a, top_a, top_b,
+		Vector2(u_start, 1.0), Vector2(u_start, 0.0), Vector2(u_end, 0.0), color
+	)
+	_add_textured_triangle(
+		surface, bottom_d, bottom_c, top_c,
+		Vector2(u_start, 1.0), Vector2(u_end, 1.0), Vector2(u_end, 0.0), color
+	)
+	_add_textured_triangle(
+		surface, bottom_d, top_c, top_d,
+		Vector2(u_start, 1.0), Vector2(u_end, 0.0), Vector2(u_start, 0.0), color
+	)
+	_add_textured_triangle(
+		surface, top_a, top_d, top_c,
+		Vector2(u_start, 1.0), Vector2(u_start, 0.0), Vector2(u_end, 0.0), color
+	)
+	_add_textured_triangle(
+		surface, top_a, top_c, top_b,
+		Vector2(u_start, 1.0), Vector2(u_end, 0.0), Vector2(u_end, 1.0), color
+	)
+	# These caps close only the ends of an already merged straight component.
+	# The old per-hex renderer omitted them to avoid a pillar at every seam, but
+	# keeping that rule after component merging left literal holes in FPP.
+	_add_textured_triangle(
+		surface, bottom_a, bottom_d, top_d,
+		Vector2(0.0, 1.0), Vector2(0.25, 1.0), Vector2(0.25, 0.0), color
+	)
+	_add_textured_triangle(
+		surface, bottom_a, top_d, top_a,
+		Vector2(0.0, 1.0), Vector2(0.25, 0.0), Vector2(0.0, 0.0), color
+	)
+	_add_textured_triangle(
+		surface, bottom_b, top_b, top_c,
+		Vector2(0.0, 1.0), Vector2(0.0, 0.0), Vector2(0.25, 0.0), color
+	)
+	_add_textured_triangle(
+		surface, bottom_b, top_c, bottom_c,
+		Vector2(0.0, 1.0), Vector2(0.25, 0.0), Vector2(0.25, 1.0), color
+	)
+	wall_mesh_face_count += 10
+
+
+func _add_textured_triangle(
+	surface: SurfaceTool,
+	a: Vector3,
+	b: Vector3,
+	c: Vector3,
+	uv_a: Vector2,
+	uv_b: Vector2,
+	uv_c: Vector2,
+	color: Color
+) -> void:
+	surface.set_color(color)
+	surface.set_uv(uv_a)
+	surface.add_vertex(a)
+	surface.set_color(color)
+	surface.set_uv(uv_b)
+	surface.add_vertex(b)
+	surface.set_color(color)
+	surface.set_uv(uv_c)
+	surface.add_vertex(c)
 
 
 func _add_colored_triangle(
@@ -935,6 +2784,10 @@ func _create_door_art_overlays(records: Array[Dictionary]) -> void:
 		var normalized_path := source_path.replace("\\", "/").to_lower()
 		var file_stem := normalized_path.get_file().get_basename()
 		var art_type := String(art.get("type", "scenery")).to_lower()
+		var is_prototype_door := _is_arcaves_prototype_door(record)
+		var arch_rule: Dictionary = source_geometry_families.get("arcaves_temple_archways", {})
+		var door_projection: Dictionary = arch_rule.get("door_projection", {})
+		var rectified_crop_value: Array = door_projection.get("rectified_crop", [])
 		var textures: Array[Texture2D] = []
 		for frame_index in frame_count:
 			var cache_path := (
@@ -945,7 +2798,20 @@ func _create_door_art_overlays(records: Array[Dictionary]) -> void:
 					frame_index,
 				]
 			)
-			var texture := _load_cached_image_texture(cache_path)
+			var texture: Texture2D
+			if is_prototype_door and rectified_crop_value.size() == 4:
+				texture = _load_source_sheared_crop_texture(
+					cache_path,
+					float(door_projection.get("shear_y_per_x", 0.0)),
+					Rect2i(
+						int(rectified_crop_value[0]),
+						int(rectified_crop_value[1]),
+						int(rectified_crop_value[2]),
+						int(rectified_crop_value[3])
+					)
+				)
+			else:
+				texture = _load_cached_image_texture(cache_path)
 			if texture == null:
 				textures.clear()
 				break
@@ -959,21 +2825,35 @@ func _create_door_art_overlays(records: Array[Dictionary]) -> void:
 		material.alpha_scissor_threshold = 0.5
 		material.cull_mode = BaseMaterial3D.CULL_DISABLED
 		material.roughness = 0.9
-		var quad := QuadMesh.new()
-		quad.size = Vector2(1.35, 2.2)
-		quad.material = material
+		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
 		var instance := MeshInstance3D.new()
 		var instance_id := int(record["instance_id"])
 		instance.name = "DoorArt%d" % instance_id
-		instance.mesh = quad
+		if is_prototype_door:
+			instance.mesh = _create_arcaves_prototype_door_mesh(material)
+		else:
+			var quad := QuadMesh.new()
+			quad.size = Vector2(1.35, 2.2)
+			quad.material = material
+			instance.mesh = quad
 		var tile := int(record["hex_index"])
 		var elevation := int(record["elevation"])
-		var direction := Coordinates.direction_to_world(tile, int(record["rotation"]))
-		var tangent := Vector3(direction.z, 0.0, -direction.x)
-		instance.transform = Transform3D(
-			Basis(tangent, Vector3.UP, direction),
-			Coordinates.hex_index_to_world(tile, elevation) + Vector3.UP * 1.1
-		)
+		if is_prototype_door:
+			var endpoint_a := Coordinates.hex_index_to_world(24305, elevation)
+			var endpoint_b := Coordinates.hex_index_to_world(24310, elevation)
+			var tangent := (endpoint_b - endpoint_a).normalized()
+			var normal := Vector3(-tangent.z, 0.0, tangent.x)
+			instance.transform = Transform3D(
+				Basis(tangent, Vector3.UP, normal),
+				(endpoint_a + endpoint_b) * 0.5 + normal * 0.02
+			)
+		else:
+			var direction := Coordinates.direction_to_world(tile, int(record["rotation"]))
+			var tangent := Vector3(direction.z, 0.0, -direction.x)
+			instance.transform = Transform3D(
+				Basis(tangent, Vector3.UP, direction),
+				Coordinates.hex_index_to_world(tile, elevation) + Vector3.UP * 1.1
+			)
 		_get_elevation_root(elevation).add_child(instance)
 		door_art_overlays[instance_id] = {
 			"instance": instance,
@@ -985,6 +2865,80 @@ func _create_door_art_overlays(records: Array[Dictionary]) -> void:
 		_refresh_door_art_frame(instance_id)
 
 
+func _is_arcaves_prototype_door(record: Dictionary) -> bool:
+	if _map_stem(String(scene_data["map"]["name"])) != "arcaves":
+		return false
+	var rule: Dictionary = source_geometry_families.get("arcaves_temple_archways", {})
+	return int(record.get("instance_id", -1)) == int(rule.get("prototype_door_instance_id", -2))
+
+
+func _create_arcaves_prototype_door_mesh(material: Material) -> ArrayMesh:
+	var rule: Dictionary = source_geometry_families.get("arcaves_temple_archways", {})
+	var geometry: Dictionary = rule.get("carrier_geometry", {})
+	var endpoint_a := Coordinates.hex_index_to_world(24305, 0)
+	var endpoint_b := Coordinates.hex_index_to_world(24310, 0)
+	var span := endpoint_a.distance_to(endpoint_b)
+	var inner_radius := float(geometry.get("opening_half_width", 1.0))
+	var spring_height := float(geometry.get("spring_height", 1.2))
+	var curve_segments := int(geometry.get("curve_segments", 16))
+	var total_height := spring_height + inner_radius
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var bottom_left := Vector3(-inner_radius, 0.0, 0.0)
+	var bottom_right := Vector3(inner_radius, 0.0, 0.0)
+	var spring_left := Vector3(-inner_radius, spring_height, 0.0)
+	var spring_right := Vector3(inner_radius, spring_height, 0.0)
+	var spring_v := 1.0 - spring_height / total_height
+	_add_archway_quad(
+		surface,
+		bottom_left,
+		bottom_right,
+		spring_right,
+		spring_left,
+		Vector2(0.0, 1.0),
+		Vector2(1.0, 1.0),
+		Vector2(1.0, spring_v),
+		Vector2(0.0, spring_v)
+	)
+	var fan_center := Vector3(0.0, spring_height, 0.0)
+	var fan_center_uv := Vector2(0.5, spring_v)
+	for index in curve_segments:
+		var angle_a := PI - PI * float(index) / float(curve_segments)
+		var angle_b := PI - PI * float(index + 1) / float(curve_segments)
+		var point_a := Vector3(
+			cos(angle_a) * inner_radius,
+			spring_height + sin(angle_a) * inner_radius,
+			0.0
+		)
+		var point_b := Vector3(
+			cos(angle_b) * inner_radius,
+			spring_height + sin(angle_b) * inner_radius,
+			0.0
+		)
+		var uv_a := Vector2(
+			point_a.x / (inner_radius * 2.0) + 0.5,
+			1.0 - point_a.y / total_height
+		)
+		var uv_b := Vector2(
+			point_b.x / (inner_radius * 2.0) + 0.5,
+			1.0 - point_b.y / total_height
+		)
+		_add_textured_triangle(
+			surface,
+			fan_center,
+			point_a,
+			point_b,
+			fan_center_uv,
+			uv_a,
+			uv_b,
+			Color.WHITE
+		)
+	surface.generate_normals()
+	var mesh := surface.commit()
+	mesh.surface_set_material(0, material)
+	return mesh
+
+
 func _create_scenery_art_overlays(records: Array[Dictionary]) -> Dictionary:
 	var rendered := {}
 	var map_key := _map_stem(String(scene_data["map"]["name"]))
@@ -994,6 +2948,8 @@ func _create_scenery_art_overlays(records: Array[Dictionary]) -> Dictionary:
 	for record in records:
 		var profile := _art_profile_for_record(record)
 		var render_mode := String(profile.get("render_mode", "hidden"))
+		if render_mode == "temple_component":
+			continue
 		if render_mode == "hidden":
 			var hidden_elevation := int(record["elevation"])
 			var hidden_light_position := Coordinates.hex_index_to_world(
@@ -1016,22 +2972,53 @@ func _create_scenery_art_overlays(records: Array[Dictionary]) -> Dictionary:
 		var normalized_path := source_path.replace("\\", "/").to_lower()
 		var file_stem := normalized_path.get_file().get_basename()
 		var art_type := String(art.get("type", "scenery")).to_lower()
-		var textures: Array[Texture2D] = []
-		for frame_index in frame_count:
-			var cache_path := (
-				"res://../artifacts/art-cache/%s/%s/%s-r0-f%d.png" % [
-					map_key,
-					art_type,
-					file_stem,
-					frame_index,
-				]
-			)
-			var texture := _load_cached_image_texture(cache_path)
-			if texture == null:
-				textures.clear()
+		var rotation_count := 6 if render_mode == "directional_6" else 1
+		var textures_by_rotation: Array = []
+		for rotation_index in rotation_count:
+			var rotation_textures: Array[Texture2D] = []
+			for frame_index in frame_count:
+				var cache_path := (
+					"res://../artifacts/art-cache/%s/%s/%s-r%d-f%d.png" % [
+						map_key,
+						art_type,
+						file_stem,
+						rotation_index,
+						frame_index,
+					]
+				)
+				var texture := _load_cached_image_texture(cache_path)
+				var crop_rect: Array = profile.get("crop_rect", [])
+				if texture != null and crop_rect.size() == 4:
+					texture = _load_source_crop_texture(
+						cache_path,
+						Rect2i(
+							int(crop_rect[0]),
+							int(crop_rect[1]),
+							int(crop_rect[2]),
+							int(crop_rect[3])
+						)
+					)
+				if texture == null:
+					rotation_textures.clear()
+					break
+				rotation_textures.append(texture)
+			if rotation_textures.is_empty():
+				textures_by_rotation.clear()
 				break
-			textures.append(texture)
-		if textures.is_empty():
+			textures_by_rotation.append(rotation_textures)
+		if textures_by_rotation.is_empty():
+			continue
+		var textures: Array = textures_by_rotation[0]
+		if render_mode == "source_solid":
+			if _create_source_solid_visual(
+				record,
+				profile,
+				textures,
+				textures_by_rotation,
+				file_stem
+			):
+				rendered[int(record["instance_id"])] = true
+				prop_art_overlay_count += 1
 			continue
 
 		var pixels_per_meter := float(profile.get("pixels_per_meter", PROP_PIXELS_PER_METER))
@@ -1047,23 +3034,78 @@ func _create_scenery_art_overlays(records: Array[Dictionary]) -> Dictionary:
 		material.alpha_scissor_threshold = 0.34
 		material.cull_mode = BaseMaterial3D.CULL_DISABLED
 		material.roughness = 0.82
-		material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		material.billboard_keep_scale = true
-		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+		if render_mode in ["billboard_y", "directional_6"]:
+			material.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
+		elif render_mode == "billboard_screen":
+			material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 		var quad := QuadMesh.new()
 		quad.size = Vector2(width, height)
 		quad.material = material
-		var instance := MeshInstance3D.new()
+		var primary_mesh := MeshInstance3D.new()
 		var instance_id := int(record["instance_id"])
-		instance.name = "SceneryArt%d_%s" % [instance_id, file_stem]
-		instance.mesh = quad
-		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		primary_mesh.mesh = quad
+		primary_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var instance: Node3D = primary_mesh
+		if render_mode == "billboard_cross":
+			instance = Node3D.new()
+			primary_mesh.name = "PlaneA"
+			instance.add_child(primary_mesh)
+			var cross_mesh := MeshInstance3D.new()
+			cross_mesh.name = "PlaneB"
+			cross_mesh.mesh = quad
+			cross_mesh.rotation.y = PI * 0.5
+			cross_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			instance.add_child(cross_mesh)
+		instance.name = "Billboard%d_%s_%s" % [instance_id, render_mode, file_stem]
 		var elevation := int(record["elevation"])
 		var vertical_offset := float(profile.get("vertical_offset", 0.0))
-		instance.position = Coordinates.hex_index_to_world(
-			int(record["hex_index"]),
-			elevation
-		) + Vector3.UP * (height * 0.5 + vertical_offset)
+		var tile := int(record["hex_index"])
+		var direction := Coordinates.direction_to_world(tile, int(record.get("rotation", 0)))
+		var right := Vector3(direction.z, 0.0, -direction.x)
+		var base_position := (
+			Coordinates.hex_index_to_world(tile, elevation)
+			+ direction * float(profile.get("forward_offset", 0.0))
+			+ right * float(profile.get("right_offset", 0.0))
+		)
+		if bool(profile.get("attach_to_nearest_wall", false)):
+			var attachment := _nearest_wall_attachment(record, profile)
+			if not attachment.is_empty():
+				base_position = attachment["position"]
+				direction = attachment["outward"]
+				if _has_user_argument("--feedback-torch") and instance_id == 1981:
+					print("FO2REMIX_WALL_ATTACHMENT %s" % JSON.stringify({
+						"instance_id": instance_id,
+						"position": _vector_to_array(base_position),
+						"outward": _vector_to_array(direction),
+						"distance": float(attachment["distance"]),
+					}))
+		var wall_normal_offset := float(profile.get("offset_from_nearest_wall_normal", 0.0))
+		if wall_normal_offset > 0.0:
+			var wall_attachment := _nearest_wall_attachment(record, profile)
+			if not wall_attachment.is_empty():
+				base_position += wall_attachment["outward"] * wall_normal_offset
+		if render_mode == "ground_decal":
+			instance.position = base_position + Vector3.UP * (vertical_offset + 0.025)
+			instance.rotation.x = -PI * 0.5
+			instance.rotation.y = atan2(-direction.x, -direction.z)
+		else:
+			instance.position = base_position + Vector3.UP * (height * 0.5 + vertical_offset)
+			if render_mode == "billboard_fixed":
+				instance.rotation.y = atan2(-direction.x, -direction.z)
+		if bool(profile.get("collision", false)):
+			_create_billboard_collision(
+				record,
+				profile,
+				base_position,
+				direction,
+				width,
+				height
+			)
+		if file_stem.begins_with("atorch"):
+			_create_source_torch_flame(instance, height, map_key, profile, instance_id)
 		_get_elevation_root(elevation).add_child(instance)
 		var initial_frame := posmod(int(record.get("frame", 0)), textures.size())
 		material.albedo_texture = textures[initial_frame]
@@ -1072,6 +3114,10 @@ func _create_scenery_art_overlays(records: Array[Dictionary]) -> Dictionary:
 			"instance": instance,
 			"material": material,
 			"textures": textures,
+			"textures_by_rotation": textures_by_rotation,
+			"render_mode": render_mode,
+			"source_rotation": int(record.get("rotation", 0)),
+			"current_rotation": 0,
 			"frames_per_second": maxf(float(frame.get("frames_per_second", 1)), 1.0),
 			"frame_offset": initial_frame,
 			"current_frame": initial_frame,
@@ -1087,6 +3133,514 @@ func _create_scenery_art_overlays(records: Array[Dictionary]) -> Dictionary:
 		prop_art_overlay_count += 1
 		_create_prop_light(record, profile, instance.position)
 	return rendered
+
+
+func _nearest_wall_attachment(record: Dictionary, profile: Dictionary) -> Dictionary:
+	var elevation := int(record["elevation"])
+	var source_position := Coordinates.hex_index_to_world(
+		int(record["hex_index"]),
+		elevation
+	)
+	var best_distance := INF
+	var best_position := Vector3.ZERO
+	var best_outward := Vector3.ZERO
+	for segment_value in wall_carrier_segments:
+		var segment: Dictionary = segment_value
+		if int(segment["elevation"]) != elevation:
+			continue
+		var closest := _closest_point_on_wall_carrier(source_position, segment)
+		var delta := source_position - closest
+		delta.y = 0.0
+		var distance := delta.length()
+		if distance >= best_distance:
+			continue
+		var normal: Vector3 = segment["normal"]
+		var side := signf(delta.dot(normal))
+		if is_zero_approx(side):
+			side = 1.0
+		var outward := normal * side
+		var surface_offset := (
+			float(segment["thickness"]) * 0.5
+			+ float(profile.get("wall_surface_offset", 0.04))
+		)
+		best_distance = distance
+		best_position = closest + outward * surface_offset
+		best_outward = outward
+	if best_distance > float(profile.get("maximum_wall_attachment_distance", 1.1)):
+		return {}
+	return {
+		"position": best_position,
+		"outward": best_outward,
+		"distance": best_distance,
+	}
+
+
+func _create_billboard_collision(
+	record: Dictionary,
+	profile: Dictionary,
+	base_position: Vector3,
+	direction: Vector3,
+	visual_width: float,
+	visual_height: float
+) -> void:
+	var width := float(profile.get("collision_width", visual_width * 0.9))
+	var height := float(profile.get("collision_height", visual_height * 0.75))
+	var depth := float(profile.get("collision_depth", maxf(width * 0.55, 0.24)))
+	var body := StaticBody3D.new()
+	body.name = "BillboardCollision%d" % int(record["instance_id"])
+	body.position = base_position
+	body.rotation.y = atan2(-direction.x, -direction.z)
+	var collision := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(width, height, depth)
+	collision.shape = shape
+	collision.position.y = height * 0.5
+	collision.set_meta("instance_ids", [int(record["instance_id"])])
+	collision.set_meta("source_billboard_collision", true)
+	body.add_child(collision)
+	_get_elevation_root(int(record["elevation"])).add_child(body)
+	source_solid_collision_count += 1
+
+
+func _create_source_solid_visual(
+	record: Dictionary,
+	profile: Dictionary,
+	textures: Array,
+	textures_by_rotation: Array,
+	file_stem: String
+) -> bool:
+	if textures.is_empty():
+		return false
+	var texture: Texture2D = textures[0]
+	var pixels_per_meter := float(profile.get("pixels_per_meter", PROP_PIXELS_PER_METER))
+	var visual_width := clampf(
+		float(profile.get("width", float(texture.get_width()) / pixels_per_meter)),
+		0.3,
+		2.4
+	)
+	var visual_height := clampf(
+		float(profile.get("height", float(texture.get_height()) / pixels_per_meter)),
+		0.3,
+		2.4
+	)
+	var depth := maxf(float(profile.get("depth", visual_width * 0.45)), 0.24)
+	var solid_height := maxf(
+		visual_height * float(profile.get("solid_height_ratio", 0.75)),
+		0.28
+	)
+	var instance_id := int(record["instance_id"])
+	var root := Node3D.new()
+	root.name = "SourceSolid%d_%s" % [instance_id, file_stem]
+
+	# The MAP owns position/orientation and the FRM remains the visible identity.
+	# A shallow source-coloured carrier supplies real depth instead of pretending
+	# the isometric sprite is a freestanding photograph.
+	var carrier_material := _create_standard_proxy_material(
+		_record_source_color(record, Color("49392d"))
+	)
+	if String(profile.get("carrier_shape", "box")) == "bench":
+		var seat_height := minf(maxf(solid_height * 0.24, 0.10), 0.18)
+		var seat_y := solid_height * 0.72
+		_add_source_carrier_box(
+			root,
+			"Seat",
+			Vector3(visual_width * 0.9, seat_height, depth),
+			Vector3(0.0, seat_y, 0.0),
+			carrier_material
+		)
+		var leg_height := maxf(seat_y - seat_height * 0.5, 0.18)
+		var leg_size := maxf(minf(visual_width, depth) * 0.16, 0.09)
+		for x_sign in [-1.0, 1.0]:
+			for z_sign in [-1.0, 1.0]:
+				_add_source_carrier_box(
+					root,
+					"Leg",
+					Vector3(leg_size, leg_height, leg_size),
+					Vector3(
+						x_sign * (visual_width * 0.38),
+						leg_height * 0.5,
+						z_sign * (depth * 0.34)
+					),
+					carrier_material
+				)
+	else:
+		_add_source_carrier_box(
+			root,
+			"Carrier",
+			Vector3(visual_width * 0.88, solid_height, depth),
+			Vector3(0.0, solid_height * 0.5, 0.0),
+			carrier_material
+		)
+
+	var source_material: StandardMaterial3D = null
+	if String(profile.get("carrier_shape", "box")) == "bench":
+		source_material = _add_arcaves_bench_source_surfaces(
+			root,
+			visual_width * 0.9,
+			depth,
+			solid_height * 0.72,
+			file_stem
+		)
+	elif String(profile.get("carrier_shape", "box")) == "chest":
+		source_material = _add_arcaves_chest_source_surfaces(
+			root,
+			visual_width * 0.88,
+			depth,
+			solid_height,
+			file_stem
+		)
+	if source_material == null:
+		source_material = _source_material(texture, true, false)
+		var source_quad := QuadMesh.new()
+		source_quad.size = Vector2(visual_width, visual_height)
+		source_quad.material = source_material
+		var front := MeshInstance3D.new()
+		front.name = "SourceFront"
+		front.mesh = source_quad
+		front.position = Vector3(0.0, visual_height * 0.5, depth * 0.5 + 0.006)
+		front.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(front)
+		var back := MeshInstance3D.new()
+		back.name = "SourceBack"
+		back.mesh = source_quad
+		back.position = Vector3(0.0, visual_height * 0.5, -depth * 0.5 - 0.006)
+		back.rotation.y = PI
+		back.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(back)
+
+	var collision_body := StaticBody3D.new()
+	collision_body.name = "SolidCollision"
+	var collision := CollisionShape3D.new()
+	var collision_shape := BoxShape3D.new()
+	collision_shape.size = Vector3(visual_width * 0.88, solid_height, depth)
+	collision.shape = collision_shape
+	collision.position.y = solid_height * 0.5
+	collision.set_meta("instance_ids", [instance_id])
+	collision.set_meta("source_solid", true)
+	collision_body.add_child(collision)
+	root.add_child(collision_body)
+	source_solid_collision_count += 1
+
+	var elevation := int(record["elevation"])
+	var tile := int(record["hex_index"])
+	var direction := Coordinates.direction_to_world(tile, int(record.get("rotation", 0)))
+	var right := Vector3(direction.z, 0.0, -direction.x)
+	root.position = (
+		Coordinates.hex_index_to_world(tile, elevation)
+		+ direction * float(profile.get("forward_offset", 0.0))
+		+ right * float(profile.get("right_offset", 0.0))
+		+ Vector3.UP * float(profile.get("vertical_offset", 0.0))
+	)
+	root.rotation.y = atan2(-direction.x, -direction.z)
+	_get_elevation_root(elevation).add_child(root)
+
+	var initial_frame := posmod(int(record.get("frame", 0)), textures.size())
+	var uses_rectified_carrier := (
+		(
+			String(profile.get("carrier_shape", "box")) == "bench"
+			and file_stem == "tempsf04"
+		)
+		or (
+			String(profile.get("carrier_shape", "box")) == "chest"
+			and file_stem == "chest1"
+		)
+	)
+	if not uses_rectified_carrier:
+		source_material.albedo_texture = textures[initial_frame]
+		prop_art_overlays.append({
+			"instance_id": instance_id,
+			"instance": root,
+			"material": source_material,
+			"textures": textures,
+			"textures_by_rotation": textures_by_rotation,
+			"render_mode": "source_solid",
+			"source_rotation": int(record.get("rotation", 0)),
+			"current_rotation": 0,
+			"frames_per_second": maxf(
+				float(record.get("art", {}).get("frame", {}).get("frames_per_second", 1)),
+				1.0
+			),
+			"frame_offset": initial_frame,
+			"current_frame": initial_frame,
+			"animate": bool(profile.get("animate", false)),
+		})
+	object_visuals[instance_id] = {
+		"kind": "prop",
+		"instance": root,
+		"material": source_material,
+		"selection_tint": false,
+	}
+	object_instance_colors[instance_id] = Color.WHITE
+	_create_prop_light(record, profile, root.position)
+	return true
+
+
+func _add_source_carrier_box(
+	parent: Node3D,
+	node_name: String,
+	size: Vector3,
+	position: Vector3,
+	material: Material
+) -> void:
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	mesh.material = material
+	var instance := MeshInstance3D.new()
+	instance.name = node_name
+	instance.mesh = mesh
+	instance.position = position
+	parent.add_child(instance)
+
+
+func _add_arcaves_bench_source_surfaces(
+	parent: Node3D,
+	width: float,
+	depth: float,
+	seat_y: float,
+	file_stem: String
+) -> StandardMaterial3D:
+	if file_stem != "tempsf04":
+		return null
+	var rule: Dictionary = source_geometry_families.get("arcaves_temple_bench", {})
+	var top_texture := _load_source_quad_texture(rule.get("top_patch", {}))
+	var front_texture := _load_source_quad_texture(rule.get("front_patch", {}))
+	if top_texture == null or front_texture == null:
+		return null
+	var top_material := _source_material(top_texture, false, false)
+	var front_material := _source_material(front_texture, false, false)
+
+	var top_quad := QuadMesh.new()
+	top_quad.size = Vector2(width, depth)
+	top_quad.material = top_material
+	var top := MeshInstance3D.new()
+	top.name = "RectifiedSourceTop"
+	top.mesh = top_quad
+	top.position = Vector3(0.0, seat_y + 0.095, 0.0)
+	top.rotation.x = -PI * 0.5
+	parent.add_child(top)
+
+	var fascia_height := 0.16
+	var fascia_quad := QuadMesh.new()
+	fascia_quad.size = Vector2(width, fascia_height)
+	fascia_quad.material = front_material
+	for side in [-1.0, 1.0]:
+		var fascia := MeshInstance3D.new()
+		fascia.name = "RectifiedSourceFascia"
+		fascia.mesh = fascia_quad
+		fascia.position = Vector3(
+			0.0,
+			seat_y,
+			side * (depth * 0.5 + 0.006)
+		)
+		if side < 0.0:
+			fascia.rotation.y = PI
+		parent.add_child(fascia)
+	return front_material
+
+
+func _add_arcaves_chest_source_surfaces(
+	parent: Node3D,
+	width: float,
+	depth: float,
+	height: float,
+	file_stem: String
+) -> StandardMaterial3D:
+	if file_stem != "chest1":
+		return null
+	var rule: Dictionary = source_geometry_families.get("arcaves_container_chest", {})
+	var top_texture := _load_source_quad_texture(rule.get("top_patch", {}))
+	var front_texture := _load_source_quad_texture(rule.get("front_patch", {}))
+	if top_texture == null or front_texture == null:
+		return null
+	var top_material := _source_material(top_texture, false, false)
+	var front_material := _source_material(front_texture, false, false)
+
+	var top_quad := QuadMesh.new()
+	top_quad.size = Vector2(width, depth)
+	top_quad.material = top_material
+	var top := MeshInstance3D.new()
+	top.name = "RectifiedSourceTop"
+	top.mesh = top_quad
+	top.position = Vector3(0.0, height + 0.006, 0.0)
+	top.rotation.x = -PI * 0.5
+	parent.add_child(top)
+
+	var fascia_quad := QuadMesh.new()
+	fascia_quad.size = Vector2(width, height * 0.76)
+	fascia_quad.material = front_material
+	for side in [-1.0, 1.0]:
+		var fascia := MeshInstance3D.new()
+		fascia.name = "RectifiedSourceFascia"
+		fascia.mesh = fascia_quad
+		fascia.position = Vector3(
+			0.0,
+			height * 0.48,
+			side * (depth * 0.5 + 0.006)
+		)
+		if side < 0.0:
+			fascia.rotation.y = PI
+		parent.add_child(fascia)
+	return front_material
+
+
+func _create_source_torch_flame(
+	torch_instance: Node3D,
+	torch_height: float,
+	map_key: String,
+	profile: Dictionary,
+	instance_id: int
+) -> void:
+	var source_path := String(profile.get("source_flame_path", ""))
+	if source_path.is_empty():
+		return
+	var file_stem := source_path.replace("\\", "/").get_file().get_basename().to_lower()
+	var frame_count := int(profile.get("source_flame_frames", 0))
+	var flame_textures: Array[Texture2D] = []
+	for frame_index in frame_count:
+		var cache_path := (
+			"res://../artifacts/art-cache/%s/scenery/%s-r0-f%d.png" % [
+				map_key,
+				file_stem,
+				frame_index,
+			]
+		)
+		var texture := _load_source_flame_texture(cache_path, Rect2i(27, 8, 37, 23))
+		if texture == null:
+			flame_textures.clear()
+			return
+		flame_textures.append(texture)
+	if flame_textures.is_empty():
+		return
+	var flame_material := StandardMaterial3D.new()
+	flame_material.albedo_texture = flame_textures[0]
+	flame_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	flame_material.alpha_scissor_threshold = 0.12
+	flame_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	flame_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	flame_material.emission_enabled = true
+	flame_material.emission = Color("ff8b32")
+	flame_material.emission_energy_multiplier = 1.35
+	flame_material.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
+	flame_material.billboard_keep_scale = true
+	flame_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	var flame_quad := QuadMesh.new()
+	flame_quad.size = Vector2(0.58, 0.38)
+	flame_quad.material = flame_material
+	var flame := MeshInstance3D.new()
+	flame.name = "SourceFlame%d" % instance_id
+	flame.mesh = flame_quad
+	flame.position = Vector3(0.0, torch_height * 0.32, 0.035)
+	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	torch_instance.add_child(flame)
+	prop_art_overlays.append({
+		"instance_id": instance_id,
+		"instance": flame,
+		"material": flame_material,
+		"textures": flame_textures,
+		"textures_by_rotation": [flame_textures],
+		"render_mode": "billboard_y",
+		"source_rotation": 0,
+		"current_rotation": 0,
+		"frames_per_second": float(profile.get("source_flame_fps", 9.0)),
+		"frame_offset": posmod(instance_id, flame_textures.size()),
+		"current_frame": 0,
+		"animate": true,
+	})
+
+
+func _load_source_flame_texture(path: String, region: Rect2i) -> Texture2D:
+	var cache_key := "%s#source-flame#%s" % [path, region]
+	if image_texture_cache.has(cache_key):
+		return image_texture_cache[cache_key]
+	if not FileAccess.file_exists(path):
+		return null
+	var source := Image.new()
+	if source.load(ProjectSettings.globalize_path(path)) != OK:
+		return null
+	var clipped_region := region.intersection(Rect2i(Vector2i.ZERO, source.get_size()))
+	if clipped_region.size.x <= 0 or clipped_region.size.y <= 0:
+		return null
+	var flame := source.get_region(clipped_region)
+	# firepit.frm contains both the flame and an opaque stone bowl. Preserve only
+	# warm emissive source pixels so the wall torch does not inherit a rectangle.
+	for y in flame.get_height():
+		for x in flame.get_width():
+			var color := flame.get_pixel(x, y)
+			var warm_source_pixel := (
+				color.a > 0.5
+				and color.r > 0.56
+				and color.g > 0.23
+				and color.b < color.g * 0.65
+				and color.r >= color.g * 0.98
+			)
+			if not warm_source_pixel:
+				flame.set_pixel(x, y, Color(0.0, 0.0, 0.0, 0.0))
+	var texture := ImageTexture.create_from_image(flame)
+	image_texture_cache[cache_key] = texture
+	return texture
+
+
+func _create_temple_architecture(records: Array[Dictionary]) -> Dictionary:
+	var rendered := {}
+	var components: Array[Dictionary] = []
+	temple_structure_count = 0
+	for record in records:
+		var profile := _art_profile_for_record(record)
+		if String(profile.get("render_mode", "")) != "temple_component":
+			continue
+		var instance_id := int(record["instance_id"])
+		rendered[instance_id] = true
+		components.append(record)
+	# TEMPLE01-08 are isometric composite layers, not world-facing surfaces.
+	# Rendering them as cards caused the rejected floating facade. Their visible
+	# identity will return only as UV regions on the MAP-derived carrier mesh.
+	if not components.is_empty():
+		_create_artemple_portal_surface(int(components[0]["elevation"]))
+	temple_structure_count = 1 if not rendered.is_empty() else 0
+	return rendered
+
+
+func _create_artemple_portal_surface(elevation: int) -> void:
+	var rule: Dictionary = source_geometry_families.get("artemple_temple01_08", {})
+	var surfaces: Dictionary = rule.get("feature_surfaces", {})
+	var portal: Dictionary = surfaces.get("portal", {})
+	var cache_path := String(portal.get("cache_path", ""))
+	var rect: Array = portal.get("rect", [])
+	var edge_hexes: Array = portal.get("edge_hexes", [])
+	if cache_path.is_empty() or rect.size() != 4 or edge_hexes.size() != 2:
+		return
+	var texture := _load_source_crop_texture(
+		cache_path,
+		Rect2i(int(rect[0]), int(rect[1]), int(rect[2]), int(rect[3]))
+	)
+	if texture == null:
+		return
+	var pixels_per_meter := float(portal.get("pixels_per_meter", 48.0))
+	var width := float(texture.get_width()) / pixels_per_meter
+	var height := float(texture.get_height()) / pixels_per_meter
+	var edge_a := Coordinates.hex_index_to_world(int(edge_hexes[0]), elevation)
+	var edge_b := Coordinates.hex_index_to_world(int(edge_hexes[1]), elevation)
+	var tangent := (edge_b - edge_a).normalized()
+	var normal := Vector3(-tangent.z, 0.0, tangent.x)
+	var spawn_position := Coordinates.hex_index_to_world(int(scene_data["spawn"]["hex_index"]), elevation)
+	var center := (edge_a + edge_b) * 0.5
+	if normal.dot(spawn_position - center) < 0.0:
+		normal = -normal
+		tangent = -tangent
+
+	var material := _source_material(texture, true, false)
+	var quad := QuadMesh.new()
+	quad.size = Vector2(width, height)
+	quad.material = material
+	var instance := MeshInstance3D.new()
+	instance.name = "ARTEMPLE_SourcePortalSurface"
+	instance.mesh = quad
+	instance.transform = Transform3D(
+		Basis(tangent, Vector3.UP, normal),
+		center + normal * 0.04 + Vector3.UP * (height * 0.5 + 0.08)
+	)
+	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_get_elevation_root(elevation).add_child(instance)
 
 
 func _create_proxy_visual(
@@ -1291,20 +3845,43 @@ func _create_prop_light(record: Dictionary, profile: Dictionary, position: Vecto
 func _update_prop_animations(delta: float) -> void:
 	prop_animation_time += delta
 	for overlay in prop_art_overlays:
-		if not bool(overlay.get("animate", false)):
-			continue
-		var textures: Array = overlay["textures"]
-		if textures.size() <= 1:
-			continue
-		var frame_index := int(
-			floor(prop_animation_time * float(overlay["frames_per_second"]))
-			+ int(overlay["frame_offset"])
-		) % textures.size()
-		if frame_index == int(overlay["current_frame"]):
+		var rotation_index := 0
+		if String(overlay.get("render_mode", "")) == "directional_6":
+			rotation_index = _directional_billboard_rotation(overlay)
+		var textures_by_rotation: Array = overlay["textures_by_rotation"]
+		var textures: Array = textures_by_rotation[rotation_index]
+		var frame_index := posmod(int(overlay["frame_offset"]), textures.size())
+		if bool(overlay.get("animate", false)) and textures.size() > 1:
+			frame_index = int(
+				floor(prop_animation_time * float(overlay["frames_per_second"]))
+				+ int(overlay["frame_offset"])
+			) % textures.size()
+		if (
+			frame_index == int(overlay["current_frame"])
+			and rotation_index == int(overlay["current_rotation"])
+		):
 			continue
 		var material: StandardMaterial3D = overlay["material"]
 		material.albedo_texture = textures[frame_index]
 		overlay["current_frame"] = frame_index
+		overlay["current_rotation"] = rotation_index
+
+
+func _directional_billboard_rotation(overlay: Dictionary) -> int:
+	var camera := fpp_camera if active_camera_mode == CAMERA_FPP else iso_camera
+	if camera == null:
+		return posmod(int(overlay["source_rotation"]), 6)
+	var instance: Node3D = overlay["instance"]
+	var to_camera := camera.global_position - instance.global_position
+	to_camera.y = 0.0
+	if to_camera.length_squared() < 0.0001:
+		return posmod(int(overlay["source_rotation"]), 6)
+	var camera_bearing := atan2(to_camera.z, to_camera.x)
+	var canonical_iso_bearing := PI * 0.25
+	var camera_sector_delta := roundi(
+		wrapf(camera_bearing - canonical_iso_bearing, -PI, PI) / (TAU / 6.0)
+	)
+	return posmod(int(overlay["source_rotation"]) - camera_sector_delta, 6)
 
 
 func _refresh_prop_lights() -> void:
@@ -1329,7 +3906,11 @@ func _refresh_prop_lights() -> void:
 		var source: Dictionary = ranked[index]["source"]
 		var light: OmniLight3D = source["node"]
 		light.visible = true
-		light.light_energy = float(source["base_energy"])
+		var phase := float(source["phase"])
+		var slow_wave := sin(prop_animation_time * 6.7 + phase)
+		var fast_wave := sin(prop_animation_time * 13.1 + phase * 1.73)
+		var flicker := 0.94 + slow_wave * 0.045 + fast_wave * 0.018
+		light.light_energy = float(source["base_energy"]) * flicker
 
 
 func _load_cached_image_texture(path: String) -> Texture2D:
@@ -1343,6 +3924,158 @@ func _load_cached_image_texture(path: String) -> Texture2D:
 	var texture := ImageTexture.create_from_image(image)
 	image_texture_cache[path] = texture
 	return texture
+
+
+func _load_source_crop_texture(path: String, region: Rect2i) -> Texture2D:
+	var cache_key := "%s#%s" % [path, region]
+	if image_texture_cache.has(cache_key):
+		return image_texture_cache[cache_key]
+	if not FileAccess.file_exists(path):
+		return null
+	var image := Image.new()
+	if image.load(ProjectSettings.globalize_path(path)) != OK:
+		return null
+	var image_bounds := Rect2i(Vector2i.ZERO, image.get_size())
+	var clipped_region := region.intersection(image_bounds)
+	if clipped_region.size.x <= 0 or clipped_region.size.y <= 0:
+		return null
+	var crop := image.get_region(clipped_region)
+	var texture := ImageTexture.create_from_image(crop)
+	image_texture_cache[cache_key] = texture
+	return texture
+
+
+func _load_source_sheared_crop_texture(
+	path: String,
+	shear_y_per_x: float,
+	region: Rect2i
+) -> Texture2D:
+	var cache_key := "%s#shear=%.4f#region=%s" % [path, shear_y_per_x, region]
+	if image_texture_cache.has(cache_key):
+		return image_texture_cache[cache_key]
+	if not FileAccess.file_exists(path):
+		return null
+	var source := Image.new()
+	if source.load(ProjectSettings.globalize_path(path)) != OK:
+		return null
+	var rectified_height := source.get_height() + ceili(
+		absf(shear_y_per_x) * float(source.get_width() - 1)
+	)
+	var rectified := Image.create(
+		source.get_width(),
+		rectified_height,
+		false,
+		Image.FORMAT_RGBA8
+	)
+	for y in rectified_height:
+		for x in source.get_width():
+			var source_y := roundi(float(y) - shear_y_per_x * float(x))
+			if source_y < 0 or source_y >= source.get_height():
+				continue
+			rectified.set_pixel(x, y, source.get_pixel(x, source_y))
+	var clipped_region := region.intersection(Rect2i(Vector2i.ZERO, rectified.get_size()))
+	if clipped_region.size.x <= 0 or clipped_region.size.y <= 0:
+		return null
+	var crop := rectified.get_region(clipped_region)
+	var texture := ImageTexture.create_from_image(crop)
+	image_texture_cache[cache_key] = texture
+	return texture
+
+
+func _load_source_quad_texture(patch: Dictionary) -> Texture2D:
+	var path := String(patch.get("cache_path", ""))
+	var source_quad: Array = patch.get("source_quad", [])
+	var output_size_value: Array = patch.get("output_size", [])
+	if path.is_empty() or source_quad.size() != 4 or output_size_value.size() != 2:
+		return null
+	var cache_key := "%s#quad=%s#size=%s" % [path, source_quad, output_size_value]
+	if image_texture_cache.has(cache_key):
+		return image_texture_cache[cache_key]
+	if not FileAccess.file_exists(path):
+		return null
+	var source := Image.new()
+	if source.load(ProjectSettings.globalize_path(path)) != OK:
+		return null
+	var corners: Array[Vector2] = []
+	for corner_value in source_quad:
+		var corner: Array = corner_value
+		if corner.size() != 2:
+			return null
+		corners.append(Vector2(float(corner[0]), float(corner[1])))
+	var output_width := int(output_size_value[0])
+	var output_height := int(output_size_value[1])
+	if output_width <= 0 or output_height <= 0:
+		return null
+	var rectified := Image.create(output_width, output_height, false, Image.FORMAT_RGBA8)
+	for y in output_height:
+		var v := (float(y) + 0.5) / float(output_height)
+		var left := corners[0].lerp(corners[3], v)
+		var right := corners[1].lerp(corners[2], v)
+		for x in output_width:
+			var u := (float(x) + 0.5) / float(output_width)
+			var source_position := left.lerp(right, u)
+			var source_x := clampi(roundi(source_position.x), 0, source.get_width() - 1)
+			var source_y := clampi(roundi(source_position.y), 0, source.get_height() - 1)
+			rectified.set_pixel(x, y, source.get_pixel(source_x, source_y))
+	var texture := ImageTexture.create_from_image(rectified)
+	image_texture_cache[cache_key] = texture
+	return texture
+
+
+func _load_source_patch_strip_texture(patches: Array) -> Texture2D:
+	if patches.is_empty():
+		return null
+	var cache_key := "source-strip#%s" % JSON.stringify(patches)
+	if image_texture_cache.has(cache_key):
+		return image_texture_cache[cache_key]
+	var images: Array[Image] = []
+	var total_width := 0
+	var common_height := -1
+	for patch_value in patches:
+		var patch: Dictionary = patch_value
+		var texture := _load_source_quad_texture(patch)
+		if texture == null:
+			return null
+		var image := texture.get_image()
+		if image == null or image.is_empty():
+			return null
+		if common_height < 0:
+			common_height = image.get_height()
+		elif image.get_height() != common_height:
+			image.resize(image.get_width(), common_height, Image.INTERPOLATE_NEAREST)
+		images.append(image)
+		total_width += image.get_width()
+	if total_width <= 0 or common_height <= 0:
+		return null
+	var strip := Image.create(total_width, common_height, false, Image.FORMAT_RGBA8)
+	var write_x := 0
+	for image in images:
+		strip.blit_rect(
+			image,
+			Rect2i(Vector2i.ZERO, image.get_size()),
+			Vector2i(write_x, 0)
+		)
+		write_x += image.get_width()
+	var strip_texture := ImageTexture.create_from_image(strip)
+	image_texture_cache[cache_key] = strip_texture
+	return strip_texture
+
+
+func _source_material(
+	texture: Texture2D,
+	use_alpha: bool,
+	repeat_texture: bool
+) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_texture = texture
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	material.texture_repeat = repeat_texture
+	if use_alpha:
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		material.alpha_scissor_threshold = 0.1
+	return material
 
 
 func _create_map_blocking_collisions() -> void:
@@ -1444,7 +4177,11 @@ func _count_wall_elevations() -> int:
 		var record: Dictionary = record_value
 		if (
 			String(record.get("kind", "")) == "wall"
-			and String(_art_profile_for_record(record).get("render_mode", "geometry")) != "hidden"
+			and (
+				_is_artemple_block_wall(record)
+				or String(_art_profile_for_record(record).get("render_mode", "geometry"))
+				!= "hidden"
+			)
 		):
 			elevations[int(record["elevation"])] = true
 	return elevations.size()
@@ -1479,7 +4216,7 @@ func _create_cameras() -> void:
 	fpp_camera = Camera3D.new()
 	fpp_camera.name = "FppEyeCamera"
 	fpp_camera.projection = Camera3D.PROJECTION_PERSPECTIVE
-	fpp_camera.fov = 75.0
+	fpp_camera.fov = FPP_VERTICAL_FOV_DEGREES
 	fpp_camera.near = 0.05
 	fpp_camera.far = 500.0
 	add_child(fpp_camera)
@@ -1516,6 +4253,7 @@ func _create_hud() -> void:
 
 func _register_input_actions() -> void:
 	_register_key("toggle_camera", KEY_TAB)
+	_register_key("toggle_test_movement", KEY_F6)
 	_register_key("move_forward", KEY_W)
 	_register_key("move_backward", KEY_S)
 	_register_key("move_left", KEY_A)
@@ -1534,11 +4272,18 @@ func _register_key(action: StringName, physical_keycode: Key) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if bridge_authoritative:
+	if bridge_authoritative and event.is_action_pressed("toggle_test_movement"):
+		_set_bridge_test_movement(not bridge_test_movement_override)
+		return
+	if bridge_authoritative and not bridge_test_movement_override:
 		if event.is_action_pressed("toggle_camera"):
 			_toggle_camera()
 		elif event.is_action_pressed("ui_cancel") and active_camera_mode == CAMERA_FPP:
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		return
+	if bridge_authoritative and event.is_action_pressed("interact"):
+		interaction_status = "TEST WALK: interaction disabled; F6 returns to CE"
+		_update_hud()
 		return
 	if event.is_action_pressed("toggle_camera"):
 		_toggle_camera()
@@ -1584,7 +4329,10 @@ func _set_camera_mode(mode: String) -> void:
 	if DisplayServer.get_name() != "headless":
 		Input.mouse_mode = (
 			Input.MOUSE_MODE_CAPTURED
-			if mode == CAMERA_FPP and not bridge_authoritative
+			if (
+				mode == CAMERA_FPP
+				and (not bridge_authoritative or bridge_test_movement_override)
+			)
 			else Input.MOUSE_MODE_VISIBLE
 		)
 	_update_hud()
@@ -1636,6 +4384,30 @@ func _create_state_bridge() -> void:
 	var path := BRIDGE_PROBE_TRACE_PATH if _has_user_argument("--bridge-probe") else BRIDGE_TRACE_PATH
 	state_bridge.configure(path, bridge_authoritative)
 	bridge_transport_status = state_bridge.status
+
+
+func _set_bridge_test_movement(enabled: bool) -> void:
+	bridge_test_movement_override = enabled and bridge_authoritative
+	player.movement_enabled = not bridge_authoritative or bridge_test_movement_override
+	if bridge_test_movement_override:
+		bridge_parity_status = "TEST WALK: CE position buffered; F6 restores it"
+		interaction_status = "Visual navigation only; E disabled"
+	else:
+		if not bridge_last_player_state.is_empty():
+			player.apply_bridge_state(
+				bridge_last_player_map_name,
+				bridge_last_player_state
+			)
+		bridge_parity_status = "CE authority restored"
+		interaction_status = "Returned to latest CE player state"
+	if DisplayServer.get_name() != "headless":
+		Input.mouse_mode = (
+			Input.MOUSE_MODE_CAPTURED
+			if bridge_test_movement_override and active_camera_mode == CAMERA_FPP
+			else Input.MOUSE_MODE_VISIBLE
+		)
+	_update_cameras()
+	_update_hud()
 
 
 func _on_bridge_status_changed(value: String) -> void:
@@ -1735,11 +4507,20 @@ func _rebuild_map_geometry() -> void:
 	image_texture_cache.clear()
 	door_art_overlay_count = 0
 	prop_art_overlay_count = 0
+	source_solid_collision_count = 0
+	temple_structure_count = 0
 	active_prop_light_count = 0
 	debug_object_counts = {"wall": 0, "door": 0, "scenery": 0, "item": 0}
 	wall_mesh_face_count = 0
 	wall_mesh_elevation_count = 0
 	wall_profile_match_count = 0
+	wall_segment_count = 0
+	wall_composite_layer_count = 0
+	arcaves_archway_count = 0
+	arcaves_arch_surface_count = 0
+	arcaves_arch_unpaired_count = 0
+	arcaves_wall_relief_count = 0
+	arcaves_wall_relief_unpaired_count = 0
 	blocking_collision_count = 0
 	floor_instances.clear()
 	ceiling_instances.clear()
@@ -1771,6 +4552,16 @@ func _apply_or_compare_bridge_player(
 	event_name: String
 ) -> void:
 	if bridge_authoritative:
+		bridge_last_player_state = player_state.duplicate(true)
+		bridge_last_player_map_name = map_name if not map_name.is_empty() else bridge_map_name
+		if bridge_test_movement_override and event_name != "map_loaded":
+			bridge_parity_status = "BUFFERED %s hex %d during TEST WALK" % [
+				event_name,
+				int(player_state["hex_index"]),
+			]
+			return
+		if bridge_test_movement_override:
+			_set_bridge_test_movement(false)
 		if not player.apply_bridge_state(map_name, player_state):
 			bridge_parity_status = "Invalid CE player state"
 			return
@@ -1901,6 +4692,7 @@ func _handle_bridge_object_state(event: Dictionary) -> void:
 	if not is_snapshot:
 		player.set_selection(instance_id)
 	_refresh_object_colors()
+	_refresh_door_art_frame(instance_id)
 	_refresh_object_collisions(instance_id)
 	bridge_events_applied += 1
 	bridge_parity_status = "%s door %d %s" % [
@@ -2068,13 +4860,25 @@ func _interact_with_object(instance_id: int) -> bool:
 			horizontal_distance,
 		]
 		return false
-	object_states[instance_id]["activated"] = true
+	var local_state: Dictionary = object_states[instance_id]
+	local_state["activated"] = true
+	if _has_user_argument("--archway-lab") and String(record.get("kind", "")) == "door":
+		var is_open := not bool(local_state.get("open", false))
+		local_state["open"] = is_open
+		local_state["blocks_movement"] = not is_open
+		_refresh_door_art_frame(instance_id)
+		_refresh_object_collisions(instance_id)
 	player.set_selection(instance_id)
-	interaction_status = "Activated instance %d / Fallout object %d from %s" % [
-		instance_id,
-		int(record["object_id"]),
-		active_camera_mode,
-	]
+	if _has_user_argument("--archway-lab") and String(record.get("kind", "")) == "door":
+		interaction_status = "Door exemplar %s; press E to toggle" % [
+			"OPEN" if bool(local_state["open"]) else "CLOSED"
+		]
+	else:
+		interaction_status = "Activated instance %d / Fallout object %d from %s" % [
+			instance_id,
+			int(record["object_id"]),
+			active_camera_mode,
+		]
 	_refresh_object_colors()
 	_update_hud()
 	return true
@@ -2163,7 +4967,7 @@ func _update_hud() -> void:
 		+ "walls %d  doors %d  scenery %d  items %d  props %d  lights %d  blocking %d  selected %d\n"
 		+ "bridge %s  authority %s  events %d/%d  %s\n"
 		+ "%s\n"
-		+ "%s   TAB: ISO/FPP"
+		+ "%s   TAB: ISO/FPP   F6: TEST WALK/CE"
 	) % [
 		state["map_name"],
 		active_camera_mode,
@@ -2183,13 +4987,19 @@ func _update_hud() -> void:
 		blocking_collision_count,
 		state["selection"],
 		bridge_transport_status,
-		"CE" if bridge_authoritative else "GODOT",
+		(
+			"CE+TEST"
+			if bridge_test_movement_override
+			else ("CE" if bridge_authoritative else "GODOT")
+		),
 		bridge_events_observed,
 		bridge_events_applied,
 		bridge_parity_status,
 		interaction_status,
 		(
-			"Mouse FREE (CE authority; drag title bar to move window)"
+			"Mouse LOOK; WASD TEST WALK; F6: return to CE"
+			if bridge_test_movement_override
+			else "Mouse FREE (CE authority; F6: TEST WALK)"
 			if bridge_authoritative
 			else "Mouse %s   ESC: release   click view: capture" % (
 				"LOOK" if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else "FREE"
@@ -2217,16 +5027,45 @@ func _run_contract_checks() -> void:
 	assert(int(object_section["wall_count"]) >= 2)
 	assert(debug_object_counts["wall"] == int(object_section["wall_count"]))
 	assert((wall_mesh_face_count > 0) == (wall_mesh_elevation_count > 0))
+	assert((wall_segment_count > 0) == (wall_mesh_elevation_count > 0))
+	assert(wall_segment_count <= debug_object_counts["wall"])
 	assert(wall_mesh_elevation_count == _count_wall_elevations())
 	assert(wall_profile_match_count <= debug_object_counts["wall"])
+	if _map_stem(String(scene_data["map"]["name"])) == "arcaves":
+		var arch_rule: Dictionary = source_geometry_families.get("arcaves_temple_archways", {})
+		assert(arcaves_archway_count == int(arch_rule.get("expected_pairs", 0)))
+		assert(arcaves_arch_surface_count == int(arch_rule.get("expected_source_surfaces", 0)))
+		assert(arcaves_arch_unpaired_count == 0)
+		var relief_rule: Dictionary = arch_rule.get("wall_relief", {})
+		assert(arcaves_wall_relief_count == int(relief_rule.get("expected_pairs", 0)))
+		assert(arcaves_wall_relief_unpaired_count == 0)
 	assert(debug_object_counts["door"] == int(object_section["door_count"]))
 	assert(door_art_overlay_count <= debug_object_counts["door"])
 	assert(
 		prop_art_overlay_count
-		<= debug_object_counts["scenery"] + debug_object_counts["item"]
+		<= (
+			debug_object_counts["scenery"]
+			+ debug_object_counts["item"]
+			+ debug_object_counts["critter"]
+		)
 	)
 	assert(debug_object_counts["scenery"] == int(object_section["scenery_count"]))
 	assert(debug_object_counts["item"] == int(object_section.get("item_count", 0)))
+	assert(debug_object_counts["critter"] == int(object_section.get("critter_count", 0)))
+	var directional_billboard_count := 0
+	for overlay in prop_art_overlays:
+		var overlay_mode := String(overlay.get("render_mode", ""))
+		var overlay_material: StandardMaterial3D = overlay["material"]
+		if overlay_mode in ["billboard_y", "directional_6"]:
+			assert(
+				overlay_material.billboard_mode == BaseMaterial3D.BILLBOARD_FIXED_Y,
+				"Y billboard material lost camera-facing mode"
+			)
+		if overlay_mode != "directional_6":
+			continue
+		directional_billboard_count += 1
+		assert((overlay["textures_by_rotation"] as Array).size() == 6)
+	assert(directional_billboard_count == debug_object_counts["critter"])
 	var blocking_records: Array = scene_data["collision"]["blocking_hexes"]
 	assert(blocking_collision_count == blocking_records.size())
 	assert(blocking_collision_count >= 2)
@@ -2274,6 +5113,8 @@ func _run_contract_checks() -> void:
 	assert(player.get_state_snapshot() == state_before)
 	var expected_eye: Vector3 = player.global_position + Vector3.UP * player.eye_height
 	assert(fpp_camera.global_position.distance_to(expected_eye) < 0.00001)
+	assert(absf(player.eye_height - 1.62) < 0.00001)
+	assert(absf(fpp_camera.fov - FPP_VERTICAL_FOV_DEGREES) < 0.00001)
 	assert(Vector2(fpp_camera.global_position.x, fpp_camera.global_position.z).distance_to(
 		Vector2(player.global_position.x, player.global_position.z)
 	) < 0.00001)
@@ -2673,6 +5514,73 @@ func _run_blocking_collision_probe() -> void:
 	get_tree().quit(0)
 
 
+func _run_source_solid_collision_probe() -> void:
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var target_instance_id := 1979
+	assert(object_records_by_instance_id.has(target_instance_id))
+	var target: Dictionary = object_records_by_instance_id[target_instance_id]
+	var target_hex := int(target["hex_index"])
+	var elevation := int(target["elevation"])
+	var target_world := Coordinates.hex_index_to_world(target_hex, elevation)
+	var source_direction := Coordinates.direction_to_world(
+		target_hex,
+		int(target.get("rotation", 0))
+	)
+	var start_world := target_world - source_direction * 1.65
+	var start_hex := Coordinates.world_to_nearest_hex(start_world)
+	player.apply_bridge_state(String(scene_data["map"]["name"]), {
+		"hex_index": start_hex,
+		"elevation": elevation,
+		"rotation": int(target.get("rotation", 0)),
+	})
+	player.global_position.x = start_world.x
+	player.global_position.z = start_world.z
+	player.velocity = Vector3.ZERO
+	player.set_view_angles(atan2(-source_direction.x, -source_direction.z), 0.0)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+
+	Input.action_press("move_forward")
+	for _frame in 90:
+		await get_tree().physics_frame
+	Input.action_release("move_forward")
+
+	var horizontal_distance := Vector2(
+		player.global_position.x - target_world.x,
+		player.global_position.z - target_world.z
+	).length()
+	assert(source_solid_collision_count > 0, "No source-solid collision shapes were created")
+	assert(
+		horizontal_distance > 0.54,
+		"Player capsule penetrated the source-solid chest carrier"
+	)
+	assert(
+		absf(player.global_position.y - target_world.y) < 0.05,
+		"Source-solid probe left the target elevation"
+	)
+	var evidence := {
+		"schema": "fo2remix.godot-source-solid-runtime-v1",
+		"map": scene_data["map"]["name"],
+		"target_instance_id": target_instance_id,
+		"target_hex": target_hex,
+		"start_hex": start_hex,
+		"elevation": elevation,
+		"source_solid_colliders": source_solid_collision_count,
+		"start_world": _vector_to_array(start_world),
+		"end_world": _vector_to_array(player.global_position),
+		"horizontal_distance_to_target": horizontal_distance,
+		"physics_frames": 90,
+		"passed": true,
+	}
+	var path := ProjectSettings.globalize_path(SOURCE_SOLID_RUNTIME_EVIDENCE_PATH)
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	assert(file != null, "Could not write source-solid runtime evidence")
+	file.store_string(JSON.stringify(evidence, "  "))
+	print("FO2REMIX_SOURCE_SOLID_RUNTIME %s" % JSON.stringify(evidence))
+	get_tree().quit(0)
+
+
 func _run_interaction_probe() -> void:
 	await get_tree().physics_frame
 	await get_tree().physics_frame
@@ -2801,16 +5709,31 @@ func _write_evidence() -> void:
 			"wall_mesh_faces": wall_mesh_face_count,
 			"wall_mesh_elevations": wall_mesh_elevation_count,
 			"wall_profile_matches": wall_profile_match_count,
+			"wall_segments": wall_segment_count,
+			"wall_composite_layers_collapsed": wall_composite_layer_count,
+			"wall_nonstraight_components": wall_nonstraight_component_count,
+			"wall_maximum_normal_span": wall_maximum_normal_span,
+			"arcaves_archways": arcaves_archway_count,
+			"arcaves_arch_source_surfaces": arcaves_arch_surface_count,
+			"arcaves_arch_unpaired_records": arcaves_arch_unpaired_count,
+			"arcaves_wall_reliefs": arcaves_wall_relief_count,
+			"arcaves_wall_relief_unpaired_records": arcaves_wall_relief_unpaired_count,
+			"arcaves_block_bridges": arcaves_block_bridge_count,
+			"wall_seam_candidates": wall_seam_candidates.size(),
+			"wall_seam_connectors": wall_seam_connector_count,
 			"wall_material": (
-				"mixed_procedural_temple_stone_and_cave_rock"
+				"rectified_temple01_03_05_07_wall_strip_temple97_columns_and_cave_rock"
 				if _map_stem(String(scene_data["map"]["name"])) == "arcaves"
-				else "procedural_stone_from_source_palette"
+				else "map_blocker_carrier_with_temple19_source_pixels"
 			),
 			"doors": debug_object_counts["door"],
 			"door_art_overlays": door_art_overlay_count,
 			"scenery": debug_object_counts["scenery"],
 			"items": debug_object_counts["item"],
+			"critters": debug_object_counts["critter"],
 			"scenery_art_overlays": prop_art_overlay_count,
+			"source_solid_colliders": source_solid_collision_count,
+			"temple_structures": temple_structure_count,
 			"source_lights": prop_light_sources.size(),
 			"active_light_budget": PROP_LIGHT_LIMIT,
 			"blocking_hexes": blocking_collision_count,
@@ -2819,6 +5742,7 @@ func _write_evidence() -> void:
 		"player_world": _vector_to_array(player.global_position),
 		"fpp_camera_origin": _vector_to_array(fpp_camera.global_position),
 		"eye_height": player.eye_height,
+		"vertical_fov_degrees": fpp_camera.fov,
 		"fpp_third_person_offset": 0.0,
 		"controller": "CharacterBody3D",
 		"starts_in_fpp": true,

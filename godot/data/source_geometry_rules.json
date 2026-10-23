@@ -1,0 +1,240 @@
+{
+  "schema": "fo2remix.source-geometry-rules-v1",
+  "families": {
+    "arcaves_temple_stone": {
+      "map": "ARCAVES.MAP",
+      "source_paths": [
+        "art\\walls\\temple03.frm",
+        "art\\walls\\temple32.frm",
+        "art\\walls\\TEMPLE96.FRM",
+        "art\\walls\\TEMPLE97.FRM",
+        "art\\walls\\TEMPLE98.FRM"
+      ],
+      "method": "source_textured_wall_carrier_and_column_primitives",
+      "source_patch": {
+        "path": "art\\walls\\temple03.frm",
+        "cache_path": "res://../artifacts/art-cache/arcaves/walls/temple03-r0-f0.png",
+        "frame": 0,
+        "rotation": 0,
+        "rect": [0, 0, 32, 111]
+      },
+      "source_variant_world_width": 1.08,
+      "source_variant_patches": [
+        {
+          "path": "art\\walls\\temple01.frm",
+          "cache_path": "res://../artifacts/art-cache/arcaves/walls/temple01-r0-f0.png",
+          "source_quad": [[0, 8], [31, 0], [31, 102], [0, 110]],
+          "output_size": [32, 102]
+        },
+        {
+          "path": "art\\walls\\temple03.frm",
+          "cache_path": "res://../artifacts/art-cache/arcaves/walls/temple03-r0-f0.png",
+          "source_quad": [[0, 8], [31, 0], [31, 102], [0, 110]],
+          "output_size": [32, 102]
+        },
+        {
+          "path": "art\\walls\\temple05.frm",
+          "cache_path": "res://../artifacts/art-cache/arcaves/walls/temple05-r0-f0.png",
+          "source_quad": [[0, 8], [31, 0], [31, 102], [0, 110]],
+          "output_size": [32, 102]
+        },
+        {
+          "path": "art\\walls\\temple07.frm",
+          "cache_path": "res://../artifacts/art-cache/arcaves/walls/temple07-r0-f0.png",
+          "source_quad": [[0, 8], [31, 0], [31, 102], [0, 110]],
+          "output_size": [32, 102]
+        }
+      ],
+      "column_patch": {
+        "path": "art\\walls\\TEMPLE97.FRM",
+        "cache_path": "res://../artifacts/art-cache/arcaves/walls/temple97-r0-f0.png",
+        "frame": 0,
+        "rotation": 0,
+        "source_quad": [[24, 16], [47, 29], [47, 91], [24, 104]],
+        "output_size": [32, 96]
+      },
+      "column_files": [
+        "temple32.frm",
+        "temple90.frm",
+        "temple91.frm",
+        "temple92.frm",
+        "temple93.frm",
+        "temple94.frm",
+        "temple95.frm",
+        "temple96.frm",
+        "temple97.frm",
+        "temple98.frm",
+        "temple99.frm"
+      ],
+      "column_geometry": {
+        "primitive": "box",
+        "width": 0.86,
+        "depth": 0.86,
+        "height": 3.0,
+        "source_pixels_per_meter": 48.0,
+        "source_projection": "rectified_source_quad_on_minimal_core"
+      },
+      "generated_art": false,
+      "billboard": false,
+      "status": "prototype_requires_iso_fpp_review"
+    },
+    "arcaves_temple_archways": {
+      "map": "ARCAVES.MAP",
+      "source_paths": [
+        "art\\walls\\temple33.frm",
+        "art\\walls\\temple34.frm",
+        "art\\scenery\\acavedr4.frm"
+      ],
+      "method": "paired_map_wall_endpoints_with_open_3d_carrier_and_source_surfaces",
+      "prototype_pair_hexes": [24305, 24310],
+      "prototype_door_instance_id": 1338,
+      "open_arch_files": ["temple33.frm", "temple34.frm"],
+      "wall_relief_files": ["temple35.frm", "temple36.frm"],
+      "wall_relief": {
+        "first_file": "temple35.frm",
+        "second_file": "temple36.frm",
+        "paired_hex_delta": 800,
+        "support_files": [
+          "temple09.frm",
+          "temple10.frm",
+          "temple11.frm",
+          "temple12.frm",
+          "temple13.frm",
+          "temple14.frm"
+        ],
+        "wall_class": 1,
+        "minimum_span": 3.2,
+        "maximum_span": 4.05,
+        "inner_radius": 1.0,
+        "ring_width": 0.18,
+        "spring_height": 1.15,
+        "depth": 0.28,
+        "unsupported_pair_geometry": "source_confirmed_arch_with_short_masonry_wings",
+        "side_fill_width": 1.1,
+        "contact_overlap": 0.55,
+        "maximum_contact_cross_error": 0.7,
+        "maximum_contact_distance": 4.25,
+        "curve_segments": 16,
+        "expected_pairs": 12
+      },
+      "pairs": [
+        {
+          "first_file": "temple34.frm",
+          "second_file": "temple33.frm",
+          "wall_class": 0,
+          "minimum_span": 3.5,
+          "maximum_span": 5.0
+        },
+        {
+          "first_file": "temple35.frm",
+          "second_file": "temple36.frm",
+          "wall_class": 1,
+          "minimum_span": 3.5,
+          "maximum_span": 4.5
+        }
+      ],
+      "trim_patch": {
+        "path": "art\\walls\\temple33.frm",
+        "cache_path": "res://../artifacts/art-cache/arcaves/walls/temple33-r0-f0.png",
+        "frame": 0,
+        "rotation": 0,
+        "source_quad": [[1, 43], [17, 39], [18, 111], [2, 122]],
+        "output_size": [24, 80]
+      },
+      "door_projection": {
+        "source_path": "art\\scenery\\acavedr4.frm",
+        "shear_y_per_x": 0.267,
+        "rectified_crop": [0, 20, 105, 76]
+      },
+      "carrier_geometry": {
+        "wall_thickness": 0.28,
+        "endpoint_overlap": 0.5,
+        "opening_half_width": 1.0,
+        "ring_width": 0.24,
+        "spring_height": 1.2,
+        "ceiling_height": 3.0,
+        "curve_segments": 16
+      },
+      "expected_pairs": 9,
+      "expected_source_surfaces": 9,
+      "generated_art": false,
+      "billboard": false,
+      "status": "single_exemplar_candidate_requires_user_review"
+    },
+    "arcaves_temple_bench": {
+      "map": "ARCAVES.MAP",
+      "source_paths": [
+        "art\\scenery\\TEMPSF04.FRM",
+        "art\\scenery\\TEMPSF05.FRM"
+      ],
+      "method": "source_y_billboard_with_map_blocking_collision",
+      "pixels_per_meter": 48.0,
+      "collision": "scene-v1 blocking_hexes derived from MAP/PRO",
+      "generated_art": false,
+      "billboard": true,
+      "status": "family_candidate_requires_user_review_in_motion"
+    },
+    "arcaves_container_chest": {
+      "map": "ARCAVES.MAP",
+      "source_paths": ["art\\items\\chest1.frm"],
+      "method": "source_y_billboard_with_independent_box_collision",
+      "visual_source": {
+        "path": "art\\items\\chest1.frm",
+        "cache_path": "res://../artifacts/art-cache/arcaves/items/chest1-r0-f0.png",
+        "rotation": 0,
+        "frame_count": 4,
+        "pixels_per_meter": 48.0
+      },
+      "collision": {
+        "primitive": "box",
+        "size": [0.82, 0.56, 0.52],
+        "orientation": "map_rotation_not_camera_billboard"
+      },
+      "generated_art": false,
+      "billboard": true,
+      "status": "single_exemplar_candidate_requires_user_review_in_motion"
+    },
+    "artemple_temple01_08": {
+      "map": "ARTEMPLE.MAP",
+      "source_paths": [
+        "art\\scenery\\TEMPLE01.FRM",
+        "art\\scenery\\TEMPLE02.FRM",
+        "art\\scenery\\TEMPLE03.FRM",
+        "art\\scenery\\TEMPLE04.FRM",
+        "art\\scenery\\TEMPLE05.FRM",
+        "art\\scenery\\TEMPLE06.FRM",
+        "art\\scenery\\temple07.frm",
+        "art\\scenery\\temple08.frm"
+      ],
+      "method": "map_blocker_connected_wall_carrier_with_source_uv",
+      "pixels_per_world_unit": 32.0,
+      "source_bounds": [-302, -578, 433, -254],
+      "carrier_geometry": {
+        "source": "art\\walls\\block.frm occupancy",
+        "primitive": "connected_wall_segments",
+        "wall_thickness": 0.42,
+        "height": 4.2
+      },
+      "source_patch": {
+        "path": "art\\walls\\temple19.frm",
+        "cache_path": "res://../artifacts/art-cache/temple19-r0-f0.png",
+        "frame": 0,
+        "rotation": 0,
+        "rect": [6, 8, 21, 96]
+      },
+      "feature_surfaces": {
+        "portal": {
+          "source_path": "art\\scenery\\TEMPLE01.FRM",
+          "cache_path": "res://../artifacts/art-cache/artemple/scenery/temple01-r0-f0.png",
+          "rect": [72, 16, 176, 180],
+          "pixels_per_meter": 48.0,
+          "edge_hexes": [16689, 16483],
+          "projection": "fixed_wall_surface"
+        }
+      },
+      "generated_art": false,
+      "billboard": false,
+      "status": "prototype_requires_iso_fpp_review"
+    }
+  }
+}

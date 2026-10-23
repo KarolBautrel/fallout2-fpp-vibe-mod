@@ -1,5 +1,124 @@
 # Punkt wznowienia
 
+## Ostatnia iteracja: fałszywa „skrzynia” ze screena (2026-10-23)
+
+Użytkownik zaakceptował skalę FPP względem mrówek i skorpionów oraz potwierdził,
+że ich kierunkowe billboardy obracają się poprawnie. Screen `gowno.png` pokazał
+natomiast dwa nieruchome, rozcięte obiekty. Identyfikacja po pozycji kamery
+(`hex 14683`, elevation 1, direction 1) wykazała, że są to instancje narożnej
+ławki `TEMPSF05.FRM` (`2061` i `2142`), a nie skrzynia `chest1.frm`.
+
+Przyczyną był tryb `source_solid`: pełny izometryczny FRM był nakładany z przodu
+i tyłu płytkiej bryły, co pod kątem tworzyło dwa skośne „skrzydła”. Całe rodziny
+`TEMPSF04/05` używają teraz `billboard_y`. Ich blokowanie nadal pochodzi z
+`scene-v1.blocking_hexes` wyeksportowanych z MAP/PRO, więc zmiana dotyczy wyłącznie
+warstwy wizualnej. Kontrakt dodatkowo sprawdza, że każdy `billboard_y` oraz
+`directional_6` naprawdę ma w materiale Godota `BILLBOARD_FIXED_Y`.
+
+Dowód z tej samej kamery: `artifacts/feedback-furniture-candidate.png`. Stare
+skrzyżowane powierzchnie zniknęły, a obie ławki pokazują kompletne źródłowe FRM.
+`28 passed`, Ruff, blocking probe i collider prawdziwej skrzyni przechodzą;
+performance probe osiąga 144.93 FPS. Licznik osobnych colliderów wizualnych spadł
+z 30 do 4, ponieważ 26 ławek używa istniejących blokad MAP zamiast duplikatów.
+
+## Ostatnia iteracja: billboardy wolnostojących obiektów i skala FPP (2026-10-23)
+
+Przyjęto hybrydową regułę renderowania zamiast jednej techniki dla całej sceny.
+NPC i potwory pozostają kierunkowymi billboardami z sześciu rotacji FRM. Skrzynie
+`chest*.frm` oraz wazy `arvase*.frm` są teraz `billboard_y`, natomiast ich wygląd
+nie steruje fizyką: skrzynia ma osobny, nieruchomy `BoxShape3D`, więc karta może
+obracać się do kamery bez obracania lub utraty kolizji. Długie ławki i pozostałe
+obiekty, dla których głębokość wpływa na czytelność przejścia, nadal używają
+minimalnej geometrii. Pochodnie ścienne zachowują źródłową kotwicę MAP; przycięty
+uchwyt i osobny animowany płomień są billboardami Y. Płomień nadal pochodzi z
+12 klatek `firepit.frm`, ale maska zachowuje tylko ciepłe piksele źródłowe, więc
+nie przenosi na ścianę prostokątnego fragmentu kamiennej misy. Najbliższy nośnik
+ściany służy do ustalenia strony pomieszczenia i odsunięcia karty przed relief.
+
+Skalę aktorów oparto na prawdziwym ludzkim `nmwarraa.frm`: klatki mają 63-66 px,
+więc 36 px/m daje około 1,75-1,83 m. Wysokość oczu gracza wynosi 1,62 m, a pionowe
+FOV zmniejszono z 75 do 65 stopni. Eliminuje to wcześniejszą sytuację, w której
+człowiek miał tylko około 1,31 m względem kamery 1,68 m i gracz wyglądał jak
+olbrzym.
+
+Dowody: `feedback-chest-candidate.png`, `feedback-critter-candidate.png` oraz
+`feedback-torch-candidate.png`. Kontrakt Godota raportuje `eye_height: 1.62`;
+source-solid probe potwierdza nieprzenikalną skrzynię (`distance 1.073`), movement
+probe przechodzi, `28 passed`, Ruff bez błędów, a performance probe osiąga
+144.94 FPS. Kolejny krok to ręczny spacer użytkownika i ocena skali w ruchu.
+
+## Ostatnia iteracja: usunięcie ścian scalanych w poprzek (2026-10-23)
+
+Test użytkownika odrzucił samą korektę szczelin: w dalszym ciągu występowały
+otwarte dziury i ściany przeprowadzone poprzecznie przez przestrzeń. Przyczyną
+nie były brakujące końcówki, tylko wcześniejszy flood-fill komponentów. Dwie
+równoległe ściany mogły połączyć się przez wspólną kotwicę narożną, po czym ich
+pozycja poprzeczna była uśredniana do jednego fałszywego odcinka.
+
+Generator grupuje teraz krawędzie grafu ścian według współrzędnej normalnej ich
+środka. Zygzak kotwic heksowych należący do jednej prostej trafia do jednego
+lane, natomiast kotwica skrzyżowania może należeć do dwóch niezależnych lane'ów.
+Przed zmianą ARCAVES miało 30 komponentów o rozrzucie poprzecznym większym niż
+0.51, maksymalnie 1.50. Po zmianie liczba takich komponentów wynosi 0, a maksimum
+to 0.500004. Runtime tworzy 569 prostych nośników, 261 łączników końców i 12176
+trójkątów ścian.
+
+Powtórzona regresja siedmiu kadrów FPP i jednego ISO nie wykazała ponownego
+zamknięcia znanych przejść. `28 passed`, Ruff, bridge, blocking i source-solid
+probe przechodzą; performance probe wynosi 144.92 FPS. Zmiana nadal oczekuje na
+ręczny spacer użytkownika w świeżym oknie i nie jest jeszcze zatwierdzona dla
+innej mapy.
+
+## Ostatnia iteracja: proceduralne domknięcie narożników ARCAVES (2026-10-23)
+
+Renderer wykonuje teraz audyt końców wszystkich scalonych nośników ścian. Gdy
+końcówka jednego nośnika dotyka w MAP prostopadłego nośnika, lecz ich powierzchnie
+nie dochodzą do wspólnego przecięcia, powstaje krótki łącznik będący przedłużeniem
+pierwszej ściany. Łącznik zachowuje jej grubość, materiał oraz fazę UV. Nie jest
+kostką ani kolumną i nie jest tworzony między równoległymi, odsuniętymi ścianami.
+
+ARCAVES ma 535 scalonych nośników, 247 potwierdzonych styków i 247 łączników.
+Liczba trójkątów ścian wzrosła z 9226 do 11696. Audyt zapisuje pełną listę do
+`artifacts/arcaves-wall-seam-audit.json`; `--seam-audit-screens` zapisuje po dwa
+ujęcia ośmiu największych szczelin, a `--disable-seam-connectors` zachowuje
+baseline diagnostyczny. Kadry `arcaves-wall-seam-00-a-baseline.png` i
+`arcaves-wall-seam-00-a-connector.png` pokazują reprezentatywny wynik.
+
+Regresja objęła siedem zapisanych ujęć FPP i jedno ISO. Przejścia i łuki pozostały
+otwarte, natomiast szczeliny narożne zostały domknięte. Testy: `28 passed`, Ruff
+bez błędów, bridge 6/5, blocking i source-solid `passed: true`; headless renderer
+osiągnął 144.95 FPS. Następny krok to ręczny spacer użytkownika po ARCAVES, a po
+akceptacji przejście do animowanych billboardów postaci i obiektów, nie dalsze
+ręczne poprawianie pojedynczych pomieszczeń.
+
+## Ostatnia iteracja: dziury, ławki i skrzynie (2026-10-23)
+
+Odrzucono bezwarunkowe renderowanie wszystkich ściennych `block.frm`, ponieważ
+tworzyło poprzeczne zapory w prawdziwych przejściach. Obecny renderer dopuszcza
+marker tylko jako mostek pomiędzy dwoma widocznymi rekordami leżącymi po jego
+przeciwnych stronach; wieloznaczne skrzyżowania pozostają niewidoczne. Kontrakt
+ARCAVES raportuje 156 selektywnych mostków i 535 scalonych nośników. Wartość
+9226 trójkątów dotyczy baseline bez późniejszych łączników narożnych.
+
+`TEMPSF04.FRM` używa minimalnej geometrii 3D z wyprostowanymi powierzchniami
+pochodzącymi wyłącznie z oryginalnych pikseli. `chest1.frm` używał w tej starszej
+iteracji podobnej bryły, ale został później zastąpiony billboardem Y z osobnym
+colliderem. Test `--source-solid-probe` nadal próbuje przez 90 klatek wejść
+w skrzynię i zapisuje wynik w `artifacts/godot-source-solid-runtime.json`;
+bieżący wynik to `passed: true`, gracz pozostał na elevation 1.
+
+Dowody wizualne:
+
+- `artifacts/feedback-holes-candidate.png` — FPP po selektywnym domknięciu;
+- `artifacts/feedback-gap2-iso.png` — kontrola układu ścian z góry;
+- `artifacts/feedback-bench-candidate.png` — bryła ławki z `TEMPSF04.FRM`;
+- `artifacts/feedback-chest-candidate.png` — aktualny billboard skrzyni z `chest1.frm`.
+
+Weryfikacja tej iteracji: `28 passed`, `ruff check .`, bridge probe 6/5,
+blocking probe `passed: true` i source-solid probe `passed: true`. Następny krok
+to test użytkownika w świeżym oknie Godota; nie rozszerzać reguł na nową mapę
+przed oceną tych czterech kadrów i przejściem po ARCAVES.
+
 Stan zapisany 23 października 2026. Projekt jest na branchu
 `prototype/iso-fpp` w katalogu:
 
@@ -15,14 +134,60 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
 - historia obejmuje bazowy build `fallout2-ce`, prototyp Godot ISO/FPP oraz
   pełny kontroler ruchu WASD.
 
+## Historia iteracji ARCAVES (starsze punkty odniesienia)
+
+Poniższe liczby opisują kolejne eksperymenty i są zachowane dla audytu. Aktualny
+stan oraz obowiązujące metryki znajdują się w pierwszej sekcji dokumentu.
+
+- trzy zgłoszone kadry można odtworzyć argumentami `--feedback-gowno1`,
+  `--feedback-gowno2` i `--feedback-gowno3`; baseline oraz bieżące kandydaty są
+  zapisane w ignorowanym `artifacts/`;
+- źródłowym oracle pojedynczego poziomu jest teraz
+  `artifacts/arcaves-walls-e0-source-composite.png` (1145 rekordów elevation 0),
+  nie starszy kompozyt mieszający wszystkie trzy elevation;
+- wszystkie 9 par `temple33/34` elevation 0–2 jest odwzorowanych jako otwarte
+  portale; ich yaw jest snapowany do kanonicznej osi ściany zamiast błędnej osi
+  pomiędzy izometrycznymi kotwicami FRM;
+- `temple90–95` są rozpoznawane jako źródłowe słupy/końcówki, co zachowuje
+  prawdziwe boczne przejścia zamiast pokazywać je jako przypadkowe dziury;
+- `temple35/36` bez bliskiego muru nośnego ma skrzydła po `1.1` jednostki;
+- bieżący kontrakt ARCAVES raportuje 9 portali, 12 reliefów, 0 rekordów bez pary,
+  503 nośniki ścian oraz 8892 trójkąty;
+- werdykt wizualny użytkownika dla tej iteracji nadal oczekuje. Podłoga, sufit
+  i rytm tekstur nie są jeszcze uznane za rozwiązane.
+- odtworzono dodatkowe zgłoszenie na heksach `20505` i `21107`: skrzydła
+  `temple35/36` dochodzą proceduralnie do najbliższego kontaktu MAP,
+  `temple99` należy do narożników, a materiały źródłowe ARCAVES nie są już
+  wtórnie zaciemniane per-pixel. Kadry front/±20°/ISO znajdują się jako
+  `feedback-gap2-*.png`. Szerokie, przechodnie otwarcia nadal potrzebują
+  czytelnych ościeży, ale nie mogą być automatycznie zamurowane.
+- po kolejnym odrzuceniu przejrzano pełny kadr `20513/0`. Renderer tworzy teraz
+  kamienne nośniki również dla 386 rekordów ściennych `art/walls/block.frm`,
+  które wcześniej były tylko wskazówkami topologii. Rekordy scenery o tej samej
+  nazwie nadal są ukryte. Bieżący kontrakt ARCAVES raportuje 556 nośników i
+  9436 trójkątów; kadry `feedback-holes-candidate.png` oraz wcześniejsze
+  `feedback-gowno1–3-candidate.png` zostały ponownie wyrenderowane.
+
 ## Ukończone etapy
 
+- eksporter obejmuje crittery i odtwarza ich nazwy FRM zgodnie z
+  `fallout2-ce` (`artBuildFilePath`, `_art_get_code`, aliasy);
+- `scene-art-cache` czyta `master.dat` oraz `critter.dat`, zapisuje sześć rotacji
+  postaci i wszystkie klatki wyłącznie w ignorowanym `artifacts/`;
+- Godot ma rodzinny renderer billboardów: sześć kierunków dla critterów,
+  Y-billboard, fixed plane, cross-plane i ground decal;
+- ARTEMPLE eksportuje 1 crittera, ARCAVES 22; oba headless probe'y przechodzą
+  przy około 145 FPS na bieżącym środowisku;
+- odtwarzalna komenda to `scripts/refresh-billboard-cache.ps1`, a pełne reguły są
+  w `docs/BILLBOARDS.md`;
+- skill `ai3d-transparent-billboard-asset` jest zainstalowany użytkownikowo dla
+  Codexa; audyt próbki critter/drzewo/pochodnia nie wykazał białych obwódek;
 - read-only parser Fallout 2 DAT z obsługą zlib;
 - parser nagłówka MAP, zmiennych i warstw podłoga/dach;
 - eksport `fo2remix.scene-v1` do JSON;
 - eksport `maps\artemple.map` do ignorowanego
   `artifacts\artemple.scene-v1.json`;
-- 23 testy i Ruff;
+- 28 testów i Ruff;
 - zainstalowany i wykrywany toolchain MSVC/CMake;
 - sklonowany oraz przypięty niezmieniony `fallout2-ce`;
 - udany build Release x64;
@@ -83,8 +248,8 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
   sesji;
 - probe `--bridge-probe --map=arcaves` potwierdza 6 zdarzeń, zamknięte drzwi po
   snapshotcie, klatkę `18` po delcie otwarcia i `door_collision_disabled = true`.
-- renderer buduje wspólną siatkę topologii ścian z zajętych heksów zamiast
-  osobnych prostokątów oraz pokazuje wyłącznie elevation bieżącej postaci;
+- renderer buduje cienkie segmenty ścian 3D w dwóch osiach zakodowanych przez
+  rodziny FRM 16/32 px oraz pokazuje wyłącznie elevation bieżącej postaci;
 - eksporter rozwiązuje teraz `FID -> art/<typ>/<typ>.lst -> FRM` zgodnie z
   `fallout2-ce`; na dwóch rzeczywistych rekordach ARCAVES potwierdzono
   `temple19.frm` i `acavedr4.frm`. Szczegóły: `docs/ART_PIPELINE.md`.
@@ -99,37 +264,65 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
   pełny footprint niepustej podłogi
   (13 361 komórek na trzech elevation). Płyty zachodzą na ściany, więc nie ma
   prześwitów; sufit jest widoczny w FPP i ukryty w ISO;
-- wersjonowany profil `temple_stone` pokrywa 1580 ścian ARCAVES kolorem
-  obliczonym z `temple19.frm`; pozostałe ściany pobierają kolor automatycznie
-  ze swojego źródłowego FRM.
-- bezpośrednia projekcja FRM na ściany została odrzucona po teście wizualnym,
-  ponieważ tworzyła nachodzące na siebie pionowe karty. Ściany korzystają teraz
-  z jednej siatki topologii i antyaliasowanego proceduralnego materiału kamienia;
-  FRM przekazuje paletę i profil rodziny, ale nie jest rozciągany na powierzchni;
+- ściany świątynne ARCAVES używają UV i pikseli `temple03.frm`; warstwy na tym
+  samym heksie zapadają się do jednego nośnika, aby nie tworzyć migoczących kart;
+- `temple32/96/97/98.frm` są filarami, nie szerokimi ścianami. Ich boczna
+  powierzchnia jest prostowana z `TEMPLE97.FRM` na małą bryłę 3D. Uchwyty
+  `atorch3/4/5.frm` dostały płomień z 12 oryginalnych klatek `firepit.frm`, a
+  źródłowe emitery MAP zachowują pozycję i energię z subtelnym migotaniem;
 - cztery drzwi ARCAVES mają źródłowe panele FRM; probe potwierdza przejście na
   klatkę `18` po stanie `open`, równolegle z wyłączeniem collidera;
-- okienkowy benchmark ARCAVES/FPP po rozgrzaniu osiągnął średnio `60,29 FPS`
-  przez 180 klatek przy 14 522 trójkątach ścian, 13 361 komórkach sufitu,
-  113 renderowanych propsach i budżecie 12 aktywnych świateł. Dowód:
-  `artifacts/godot-render-performance.json`.
+- okienkowy benchmark ARCAVES/FPP po rozgrzaniu osiągnął `60,00 FPS` przez
+  180 klatek przy 2 628 trójkątach nośników ścian i wejść, 13 361 komórkach
+  sufitu, 135 renderowanych propsach i budżecie 12 aktywnych świateł. Bieżący
+  dowód to `artifacts/godot-render-performance.json`; wcześniejsze warianty
+  map pozostają osobnymi punktami odniesienia.
 - podłogi są generowane z prawdziwych FRM typu `tiles`: ARCAVES ma 25 rodzin,
   a ARTEMPLE 166. Kalibracja narożników obrazu `80 x 36` usuwa czarne szczeliny
   pomiędzy kaflami;
-- renderer 2.5D zachowuje billboard tylko dla jawnie zatwierdzonego wodospadu.
-  Pochodnie i paleniska są proceduralnymi modelami 3D, a pozostałe znane
-  rodziny używają stabilnych brył proxy; ARCAVES nadal zawiera 7 itemów. Itemy
+- renderer 2.5D zachowuje źródłowe billboardy dla critterów, roślinności,
+  pochodni, palenisk, efektów i jawnie zatwierdzonych płaskich dekoracji.
+  Istniejące bryły proxy skrzyń, mebli, skał i waz są roboczą geometrią nośną;
+  nie są zaakceptowanym zamiennikiem źródłowego wyglądu. ARCAVES nadal zawiera
+  7 itemów. Itemy
   ARCAVES obejmują cztery skrzynie `chest1.frm`, dwie wazy i kości. Sprite
   `block.frm` pozostaje niewidzialny;
   MAP wskazuje 76 osobnych emiterów światła w ARCAVES i 2 w ARTEMPLE;
-- widoczne ściany są zamkniętą powierzchnią graniczną sumy zajętych heksów MAP;
-  wspólne krawędzie znikają, a techniczne rekordy `block.frm` pozostają tylko
-  w autorytatywnej kolizji;
+- widoczne ściany są scalane w maksymalne proste przebiegi. Oś jest wybierana z
+  lokalnego sąsiedztwa MAP, a szerokość FRM rozstrzyga tylko remisy; dzięki temu
+  szerokie lico i wąskie zakończenie tej samej ściany nie tworzą prostopadłych
+  klocków ani efektu harmonijki;
+  techniczne rekordy `block.frm` pozostają tylko w autorytatywnej kolizji;
+- odrzucono automatyczne traktowanie 21 par `temple33–36.frm` jako wejść.
+  Kontrprzykład `temple35/36` na heksach `28700/29500` nakłada się na ciągły
+  mur, więc nazwa i sylwetka FRM nie wystarczają do wnioskowania o prześwicie;
+- prawdziwe drzwi ARCAVES `instance_id=1338`, heks `24308`, pomiędzy
+  `temple34.frm` na `24305` i `temple33.frm` na `24310` mają łukową geometrię
+  3D, prostowane klatki `acavedr4.frm`, źródłowy kamień, głębokość ościeża oraz
+  zakładkę zamykającą styk z sąsiednim murem;
+- 24 rekordy `temple35/36.frm` tworzą 12 par przez potwierdzoną relację heksów
+  `+800`. Sześć par z pobliskim nośnikiem `temple09–14` jest reliefem na pełnej
+  ścianie, a sześć bez takiego nośnika ma łuk, mur nad nim i krótkie skrzydła
+  po `0.52` jednostki, zgodne z oznaczonymi prostokątami źródłowych FRM. Obie
+  klasy mają osobne kadry front/bok; szczegóły i odrzucone reguły są w
+  `docs/ARCAVES_ARCHITECTURE_EXPERIMENTS.md`;
+- scalone ściany mają teraz czoła tylko na końcach komponentów. Korytarze używają
+  prostowanego pasa czterech oryginalnych powierzchni
+  `temple01/03/05/07.frm`, powtarzanego co `4.32` jednostki zamiast jednego
+  sprite'a `temple03` co około metr;
 - ARTEMPLE jest traktowane jako lokacja zewnętrzna bez automatycznego sufitu.
   ARCAVES nadal ma sufit `floor_footprint` bez szczelin;
-- `TEMPLE01`–`TEMPLE08` są mapowane jako rodzina na bramę, dwa biegi schodów,
-  fasadę i łączniki. Techniczne rekordy ścian zachowują kolizję, ale nie tworzą
-  już widocznej poszarpanej bryły na zewnątrz. Benchmark ARTEMPLE/FPP wynosi
-  `59,95 FPS`;
+- `TEMPLE01`–`TEMPLE08` są składane z dokładnych pikseli źródłowych poleceniem
+  `scene-source-composite`, ale cała kompozycja nie jest już renderowana jako
+  fasada. Screenshot `artifacts/rejected-artemple-flat-facade.png` wykazał
+  wiszącą kartę i brak prawdziwej
+  zmiany perspektywy; ten wariant został usunięty. Runtime łączy teraz 45
+  technicznych heksów ścian MAP w ciągłe odcinki, teksturuje je wycinkiem
+  `temple19.frm` i osadza portal z `TEMPLE01` jako ograniczoną powierzchnię cechy.
+  Reguła `artemple_temple01_08` jest zapisana w
+  `godot/data/source_geometry_rules.json`. Pozostałe ornamenty wymagają osobnych
+  projekcji front/bok i przeglądu UV. Techniczne rekordy nadal zachowują
+  autorytatywną kolizję;
 - tylko aktywne elevation ma włączoną fizykę. Naprawia to promień ISO, który
   wcześniej mógł trafić w niewidzialną podłogę wyższego poziomu;
 
@@ -206,6 +399,13 @@ logiczny zachowuje indeks heksa; kamery tylko go obserwują.
 - `godot-preview00000002.png` — widok ISO;
 - `godot-fpp-preview00000002.png` — widok FPP;
 - `godot-headless-contract-2026-10-23.log`.
+- `artemple-temple-source-composite.png/.json` — dokładna kompozycja ośmiu
+  źródłowych FRM z hashami i prostokątami `objectGetRect`;
+- `godot-artemple-iso-material-preview.png` oraz
+  `godot-artemple-fpp-material-preview.png` — bieżąca para do przeglądu reguły
+  `artemple_temple01_08`;
+- `blender-selftest/` — lokalny wynik pełnego headless smoke-testu toolchainu
+  Blender 5.1 (GLB, UV, bake i cztery rendery).
 
 Oryginalne `.dat`, `.map`, `.frm`, audio, filmy i save'y pozostają poza
 Gitem. Instalacja Steam jest traktowana wyłącznie jako źródło do odczytu.
@@ -231,15 +431,24 @@ delty stanu. Probe ARCAVES potwierdza sześć zdarzeń, przyrostowe dopisywanie,
 buforowanie niepełnej linii, reset zamkniętych drzwi i późniejsze otwarcie.
 
 Test end-to-end dwóch prawdziwych procesów został wykonany, stan drzwi jest
-odwzorowany w geometrii i kolizji, podłogi pochodzą z FRM, a znane rodziny
-propsów używają jawnych profili 2.5D/3D. Ściany mają zamkniętą siatkę graniczną
-rozdzieloną na elevation. Bezpośrednia projekcja FRM na ściany i przypadkową
-scenerię została odrzucona; obecne materiały zachowują paletę źródłową, światła
-nie mają syntetycznego migotania, a sufit ARCAVES nie ma szczelin. Następny krok
-po teście użytkownika to porównanie wybranych punktów ISO/FPP, korekta profili
-rodzin, płynne klatki drzwi, a potem pierwszy ruchomy critter z tym samym
-modelem snapshot + delty. Nie należy
-jeszcze hookować ani modyfikować retailowego EXE.
+odwzorowany w geometrii i kolizji, a podłogi pochodzą z FRM. Kierunek wizualny
+został skorygowany według prototypu Diablo First Person: MAP/PRO określa
+topologię, FRM wygląd, a geometria jest wyłącznie nośnikiem oryginalnych pikseli.
+Proceduralny model świątyni został odrzucony i runtime go już nie wywołuje.
+`scene-source-composite` odtwarza dokładną referencję `TEMPLE01–08`, ale nie jest
+już bezpośrednio wyświetlany. Godot buduje ściany z technicznych heksów MAP i
+nakłada źródłowe piksele na powierzchnie. Bieżący kandydat ARCAVES zamyka końce
+scalonych murów, używa czterowariantowego źródłowego pasa ścian i rozdziela
+`temple35/36` na reliefy oraz łuki z krótkimi skrzydłami muru na podstawie
+obecności nośnika MAP i pikseli obu FRM. Zarówno pełne wypełnienie rozpiętości
+pary, jak i sama wolnostojąca obręcz zostały odrzucone. Referencyjny
+`artifacts/arcaves-walls-source-composite.png` składa wszystkie `2622` źródłowe
+klatki ścian i potwierdza, że pozostały labiryntowy układ pomieszczeń należy do
+oryginalnej Świątyni Prób. Następny konkretny krok po ręcznym teście łączników
+narożnych to animowany billboard jednej postaci i jednej rodziny obiektów, z
+klatką oraz kierunkiem sterowanymi wspólnym stanem CE. Oświetlenie, podłoga i
+sufit pozostają osobnymi, niezaakceptowanymi rodzinami.
+Nie należy jeszcze hookować ani modyfikować retailowego EXE.
 
 Podczas pierwszego testu starszy launcher ustawił instalację Steam jako katalog
 roboczy i utworzył tam `data\maps\ARTEMPLE.SAV` oraz

@@ -2,6 +2,10 @@
 
 Eksperymentalny projekt dodający do Fallouta 2 przełączanie między klasycznym widokiem izometrycznym a kamerą FPP — bezpośrednio z oczu postaci.
 
+Docelowy renderer zachowuje oryginalny wygląd: dane `MAP/PRO` dostarczają
+topologię, a piksele `FRM` są mapowane na minimalną geometrię lub pozostają
+sprite'ami. Wiążące zasady opisuje [specyfikacja wierności](docs/FIDELITY_SPEC.md).
+
 ## Pierwszy cel
 
 Jedna mała lokacja, w której:
@@ -87,6 +91,19 @@ Cache unikalnych assetów użytych przez jedną wyeksportowaną scenę:
   "C:\Program Files (x86)\Steam\steamapps\common\Fallout 2\master.dat" `
   artifacts\arcaves.scene-v1.json artifacts\art-cache\arcaves --all-frames
 ```
+
+Dokładna kompozycja źródłowej rodziny `TEMPLE01–08`, używana do kalibracji UV:
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+.\.venv\Scripts\python.exe -m fo2remix scene-source-composite `
+  artifacts\artemple.scene-v1.json artifacts\art-cache\artemple `
+  artifacts\artemple-temple-source-composite.png `
+  --path-prefix 'art\scenery\temple0'
+```
+
+PNG i JSON z hashami pozostają w ignorowanym `artifacts/`; repo przechowuje
+wyłącznie kod kompozytora oraz reguły geometrii/UV.
 
 Szczegóły znajdują się w `docs/MODDING_PLAN.md` oraz `docs/ENVIRONMENT.md`.
 

@@ -8,6 +8,7 @@ from typing import Any
 
 from .art_format import ArtReference
 from .map_format import (
+    OBJECT_TYPE_CRITTER,
     OBJECT_TYPE_ITEM,
     OBJECT_TYPE_SCENERY,
     OBJECT_TYPE_WALL,
@@ -47,7 +48,8 @@ def export_scene_v1(
             art_metadata_resolver=art_metadata_resolver,
         )
         for instance_id, obj in indexed_objects
-        if obj.fid_type in {OBJECT_TYPE_ITEM, OBJECT_TYPE_SCENERY, OBJECT_TYPE_WALL}
+        if obj.fid_type
+        in {OBJECT_TYPE_ITEM, OBJECT_TYPE_CRITTER, OBJECT_TYPE_SCENERY, OBJECT_TYPE_WALL}
     ]
     blocking_hexes = _export_blocking_hexes(indexed_objects)
 
@@ -112,6 +114,7 @@ def export_scene_v1(
             "door_count": sum(obj["kind"] == "door" for obj in exported_objects),
             "scenery_count": sum(obj["kind"] == "scenery" for obj in exported_objects),
             "item_count": sum(obj["kind"] == "item" for obj in exported_objects),
+            "critter_count": sum(obj["kind"] == "critter" for obj in exported_objects),
             "records": exported_objects,
         },
         "collision": {
@@ -132,6 +135,8 @@ def _export_object(
     world = hex_index_to_world(obj.tile, obj.elevation)
     if obj.fid_type == OBJECT_TYPE_ITEM:
         kind = "item"
+    elif obj.fid_type == OBJECT_TYPE_CRITTER:
+        kind = "critter"
     elif obj.fid_type == OBJECT_TYPE_WALL:
         kind = "wall"
     else:

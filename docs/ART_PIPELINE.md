@@ -34,12 +34,13 @@ Cache obejmuje obecnie również źródłowe kafle podłóg i dachów: ARCAVES u
 151 unikalnych FRM, a ARTEMPLE 193. Manifest ma schemat
 `fo2remix.art-cache-v1`. Eksporter zapisuje również średni
 kolor nieprzezroczystych pikseli FRM, z którego korzysta debugowy materiał 3D.
-Eksperyment z bezpośrednim nakładaniem klatki FRM na każdą odsłoniętą ścianę
-został odrzucony po teście wizualnym: izometryczne sprite'y tworzyły nachodzące
-na siebie pionowe karty, widoczne zęby i niespójne łączenia. Ściany korzystają
-teraz wyłącznie ze wspólnej siatki topologii oraz proceduralnego materiału
-kamienia. FRM nadal dostarcza kolor i identyfikację rodziny materiału, ale nie
-jest rozciągany jako tekstura całej ściany.
+Eksperyment z bezpośrednim nakładaniem całej klatki FRM na każdą odsłoniętą
+ścianę został odrzucony po teście wizualnym: izometryczne sprite'y tworzyły
+nachodzące na siebie pionowe karty, widoczne zęby i niespójne łączenia. Nie jest
+to jednak zgoda na proceduralny wygląd. Docelowa powierzchnia dostaje minimalną
+geometrię i UV lub projekcję z odpowiedniego fragmentu źródłowego FRM. Obecne
+proceduralne materiały ARCAVES są blockoutem diagnostycznym, nie zaakceptowanym
+wynikiem wizualnym.
 Drzwi korzystają z osobnego panelu źródłowego: stan zamknięty pokazuje klatkę
 `0`, a odebrane z bridge'a otwarcie przełącza grafikę na ostatnią klatkę FRM.
 Kolizja i stan nadal pochodzą z `fallout2-ce`, nie z animacji.
@@ -53,11 +54,14 @@ rekordów `block.frm`. Godot zachowuje ten model zamiast przypisywać zgadywane
 
 ## Co jest automatyczne
 
-Godot buduje obecnie zamkniętą siatkę graniczną sumy widocznych heksów ścian
-MAP. Wspólne krawędzie są usuwane, więc sąsiednie komórki nie tworzą
-nakładających się płaszczyzn ani szczelin. Techniczny
-`art\\walls\\block.frm` uczestniczy wyłącznie w kolizji i nie generuje
-poszarpanej bryły. ARTEMPLE odzyskuje wygląd budowli z rodzinnych modeli
+Godot buduje ściany jako cienkie segmenty 3D, a nie pionowe karty ani pełne
+heksagonalne klocki. Kierunek jest klasyfikowany z wariantu FRM: rodziny o
+szerokości bazowej 16 i 32 px odpowiadają dwóm osiom ścian Fallouta. Hipotezę
+potwierdzają co najmniej pary `temple01/temple02` oraz `ca053/ca052`.
+Wielokrotne sprite'y na tym samym heksie są kompozycją obrazu izometrycznego i
+zapadają się do jednego segmentu, co usuwa z-fighting i falowanie. Techniczny
+`art\\walls\\block.frm` uczestniczy wyłącznie w kolizji. ARTEMPLE odzyskuje
+wygląd budowli z rodzinnych modeli
 `TEMPLE01`–`TEMPLE08`. W ARCAVES ściany `temple*` używają ostrego materiału
 bloków kamiennych, a `ca*` osobnego materiału naturalnej skały. Podłogi,
 ściany, drzwi i sceneria z innych elevation są ukrywane,
@@ -74,24 +78,52 @@ Podłogi nie używają już kolorowych placeholderów. Typ `tiles` jest rozwiąz
 przez ten sam `FID -> .lst -> FRM`, a izometryczny romb `80 x 36` jest mapowany
 na płaszczyznę świata przez cztery zmierzone narożniki nieprzezroczystego
 obszaru. ARCAVES wykorzystuje 25 rodzin kafli, a ARTEMPLE 166. Surowe
-izometryczne FRM nie są już domyślnie ustawiane pionowo w świecie FPP, ponieważ
-powodowało to spłaszczone, źle zakotwiczone karty. Jawna lista bezpiecznych
-rodzin zachowuje billboard tylko dla wodospadu. Pochodnie i paleniska są
-modelami 3D z uchwytem, misą, kamiennym pierścieniem i emisyjnym płomieniem;
-nie korzystają już z wyciętych obrazów FRM. Drzewa, skały, wyposażenie
-świątyni, skrzynie, wazy i kości dostają stabilne bryły proxy w dokładnych
-pozycjach MAP; nierozpoznane dekoracje są
-ukryte do czasu dodania profilu rodziny. ARCAVES ma 7 itemów: cztery skrzynie
+izometryczne FRM są używane selektywnie jako billboardy 2.5D. Pochodnie i
+dekoracje ścienne zachowują rotację z MAP, drzewa używają dwóch skrzyżowanych
+kart, a kości leżą jako
+decal podłoża. Crittery mają sześć kierunków pochodzących bezpośrednio z FRM;
+renderer dobiera widok na podstawie kierunku obiektu i położenia kamery.
+Architektura `TEMPLE01`–`TEMPLE08` pozostaje geometrią, bo billboard nie odzyska
+jej wnętrza ani tylnej strony. ARCAVES ma 7 itemów: cztery skrzynie
 `chest1.frm`, dwie wazy i kości. Maksymalnie 12 najbliższych źródłowych świateł
-na aktywnym elevation jest włączonych jednocześnie, ze stałą energią bez
-syntetycznego migotania.
+na aktywnym elevation jest włączonych jednocześnie. Pozycja, zasięg i energia
+pochodzą z MAP; renderer dodaje jedynie subtelną modulację energii w czasie.
 
-Zewnętrzne assety `TEMPLE01`–`TEMPLE08` mają rodzinny profil rekonstrukcji 3D.
-`TEMPLE01` kotwiczy bramę z prawdziwym otworem, `temple07/08` dwa biegi schodów,
-a `TEMPLE02`–`TEMPLE06` bryły i łączniki fasady. Korekta `forward_offset` jest
-częścią profilu assetu i kompensuje izometryczną kotwicę FRM; nie jest ustawiana
-na podstawie save'a. Techniczne `block.frm` nadal zapewniają kolizję, lecz nie
-są już renderowane jako poszarpana fasada.
+Statyczne `atorch3/4/5.frm` opisują uchwyt, nie animowany ogień. Płomień jest
+wycinany z 12 źródłowych klatek `firepit.frm`. Rodzina filarów
+`temple32/96/97/98.frm` nie jest już rozciągana jako ściana: boczny czworokąt
+z `TEMPLE97.FRM` jest prostowany na minimalną bryłę nośną.
+
+Nośnik ścian nie powstaje już jako osobny prostopadłościan dla każdego heksa.
+Renderer odzyskuje dwie prostopadłe osie fizyczne z transformacji kwadratowej
+siatki podłogi. Pierwsza z nich wymaga naprzemiennych kroków w kierunkach heksa
+0/1, które są rzutowane na jedną prostą; druga pokrywa się z kierunkiem 2/5.
+Spójne komponenty są następnie scalane w pojedyncze przebiegi. Usuwa to
+harmonijkę wynikającą z traktowania kierunków 0 i 1 jako osobnych ścian.
+
+Zewnętrzne assety `TEMPLE01`–`TEMPLE08` są jedną rodziną kompozytową. Polecenie
+`scene-source-composite` odtwarza ich obraz według `tileToScreenXY` i
+`objectGetRect` z `fallout2-ce`; dowód zawiera hashe wszystkich ośmiu PNG.
+Pierwsza próba zachowania całej kompozycji jako nieruchomej fasady została
+odrzucona po runtime capture `artifacts/rejected-artemple-flat-facade.png`: nadal pokazywała rzut ISO jako
+wiszącą kartę i nie zmieniała perspektywy. Aktualna reguła buduje ciągłe odcinki
+ścian z 45 technicznych rekordów `art\\walls\\block.frm`, nakłada na nie piksele
+z oryginalnego `temple19.frm`, a unikalny portal jest małą powierzchnią cechy
+osadzoną na krawędzi wyznaczonej przez dwa heksy MAP. Następna iteracja rozcina
+pozostałe ornamenty na front, lewy i prawy bok oraz przypisuje im osobne UV.
+Reguła jest wersjonowana w
+`godot/data/source_geometry_rules.json`; techniczne `block.frm` nadal zapewniają
+autorytatywną kolizję.
+
+Nie wolno uznawać każdej pary `temple33–36.frm` za wejście. Eksperyment z 21
+automatycznymi łukami został odrzucony: `temple35/36.frm` może nakładać ornament
+na ciągły mur `temple09–14.frm`, a nie oznaczać wolny prześwit. Pierwszym wzorcem
+jest wyłącznie prawdziwy portal drzwi `instance_id = 1338` na heksie `24308`,
+otoczony rekordami `temple34.frm` na `24305` i `temple33.frm` na `24310`.
+Renderer prostuje klatki `acavedr4.frm`, nakłada je na łukową powierzchnię drzwi
+i buduje nośnik 3D z ościeżami, krzywizną, grubością oraz bocznymi wypełnieniami.
+Pełne izometryczne sprite'y łuku nie są wyświetlane jako karty. Reguła nie może
+zostać rozszerzona na pozostałe portale przed osobnym przeglądem użytkownika.
 
 ## Czego nie da się odzyskać automatycznie 1:1
 
@@ -117,8 +149,13 @@ zastąpi danych `MAP`/`PRO`/`FRM`.
 
 ## Następny etap
 
-Po teście użytkownika następnym krokiem będzie porównanie kilku konkretnych
-punktów mapy ISO/FPP, korekta profili rodzin proxy oraz płynne odtwarzanie
-pośrednich klatek drzwi. Dopiero po zgodności układu i blokad dojdzie pierwszy
-ruchomy critter. Profile nadal są definiowane dla rodzin assetów, nie osobno
-dla map. Wygenerowane tekstury pozostają w ignorowanym `artifacts/`.
+Najbliższy krok to segmentacja `TEMPLE01–08` na powierzchnie fasady, boków,
+portalu i stopni, a następnie bake UV bez zmiany pikseli źródłowych. Każda
+iteracja musi zostawić zestawiony kadr ISO/FPP i dopiero po akceptacji przejść do
+kolejnej rodziny. Statyczne crittery są już eksportowane i renderowane w sześciu
+kierunkach; późniejszym krokiem jest przesyłanie ich bieżącej pozycji, rotacji i
+klatki przez bridge. Profile nadal są definiowane dla rodzin assetów, nie osobno
+dla map. Źródłowe i pośrednie tekstury pozostają w ignorowanym `artifacts/`.
+
+Pełny opis trybów billboardów, komenda odtwarzająca cache i reguły QA znajdują
+się w `docs/BILLBOARDS.md`.

@@ -17,6 +17,13 @@ var logical_state := {
 var initialized := false
 
 
+func _init() -> void:
+	# Fallout's human FRM reference is about 1.75-1.83 m after the shared
+	# 36 px/m actor calibration. Keep the camera below the top of that silhouette.
+	eye_height = 1.62
+	body_height = 1.75
+
+
 func initialize(map_name: String, spawn: Dictionary) -> void:
 	logical_state["map_name"] = map_name
 	logical_state["hex_index"] = int(spawn["hex_index"])

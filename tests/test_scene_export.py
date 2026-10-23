@@ -51,7 +51,7 @@ def _object(
 
 def _prototype(pid: int, subtype: int | None = None) -> PrototypeSummary:
     object_type = pid >> 24
-    name = "wall" if object_type == 3 else "scenery"
+    name = {1: "critter", 3: "wall"}.get(object_type, "scenery")
     return PrototypeSummary(
         pid=pid,
         object_type=object_type,
@@ -67,7 +67,7 @@ def _prototype(pid: int, subtype: int | None = None) -> PrototypeSummary:
 
 def _art(fid: int) -> ArtReference:
     object_type = (fid & 0x0F000000) >> 24
-    type_name = {2: "scenery", 3: "walls", 4: "tiles"}[object_type]
+    type_name = {1: "critters", 2: "scenery", 3: "walls", 4: "tiles"}[object_type]
     list_index = fid & 0xFFF
     file_name = f"asset{list_index}.frm"
     return ArtReference(
@@ -116,10 +116,12 @@ def test_exports_one_present_tile_layer() -> None:
     wall_pid = 0x03000001
     closed_door_pid = 0x02000001
     open_door_pid = 0x02000002
+    critter_pid = 0x01000003
     prototypes = {
         wall_pid: _prototype(wall_pid),
         closed_door_pid: _prototype(closed_door_pid, 0),
         open_door_pid: _prototype(open_door_pid, 0),
+        critter_pid: _prototype(critter_pid),
     }
     scripts = pack(">5i", 0, 0, 0, 0, 0)
     object_records = b"".join(
@@ -127,9 +129,10 @@ def test_exports_one_present_tile_layer() -> None:
             _object(101, 18_490, 0x03000001, OBJECT_MULTIHEX, wall_pid),
             _object(201, 18_493, 0x02000001, 0, closed_door_pid, 0),
             _object(201, 18_494, 0x02000002, OBJECT_OPEN_DOOR, open_door_pid, 1),
+            _object(301, 18_495, 0x01000003, 0, critter_pid, *([0] * 11)),
         )
     )
-    object_section = pack(">2i", 3, 3) + object_records + pack(">2i", 0, 0)
+    object_section = pack(">2i", 4, 4) + object_records + pack(">2i", 0, 0)
 
     scene = export_scene_v1(
         header + layer + scripts + object_section,
@@ -149,14 +152,15 @@ def test_exports_one_present_tile_layer() -> None:
     assert scene["tile_grid"]["layers"][0]["roof_flags"][0] == 3
     assert [record["tile_id"] for record in scene["tile_grid"]["art"]] == [5, 7]
     assert scene["tile_grid"]["art"][0]["path"] == r"art\tiles\asset5.frm"
-    assert scene["objects"]["declared_count"] == 3
+    assert scene["objects"]["declared_count"] == 4
     assert scene["objects"]["wall_count"] == 1
     assert scene["objects"]["door_count"] == 2
     assert scene["objects"]["item_count"] == 0
+    assert scene["objects"]["critter_count"] == 1
     assert scene["objects"]["records"][1]["door"]["open"] is False
     assert scene["objects"]["records"][2]["door"]["open"] is True
     assert scene["objects"]["records"][0]["flags"]["multihex"] is True
-    assert [record["instance_id"] for record in scene["objects"]["records"]] == [0, 1, 2]
+    assert [record["instance_id"] for record in scene["objects"]["records"]] == [0, 1, 2, 3]
     assert scene["objects"]["records"][1]["object_id"] == 201
     assert scene["objects"]["records"][2]["object_id"] == 201
     assert scene["objects"]["records"][0]["frame"] == 0
@@ -192,5 +196,5 @@ def test_exports_one_present_tile_layer() -> None:
         for record in scene["collision"]["blocking_hexes"]
         for instance_id in record["instance_ids"]
     }
-    assert blocked_instances == {0, 1}
-    assert len(scene["collision"]["blocking_hexes"]) == 8
+    assert blocked_instances == {0, 1, 3}
+    assert len(scene["collision"]["blocking_hexes"]) == 9

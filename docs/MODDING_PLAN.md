@@ -30,10 +30,11 @@ Pierwszy pionowy wycinek powstanie jako parser/eksporter plus niezależny render
 
 ### M1 — inwentaryzacja formatu
 
-- znaleźć ścieżkę ładowania `.dat` i `.map` w `fallout2-ce`;
-- zapisać znaczenie współrzędnych kafli/heksów i poziomów;
-- wybrać małą mapę testową;
-- stworzyć schemat `scene-v1.json`.
+- [x] znaleźć ścieżkę ładowania `.dat` i `.map` w `fallout2-ce`;
+- [x] zapisać znaczenie współrzędnych kafli/heksów i poziomów;
+- [x] wybrać małą mapę testową (`maps\artemple.map`);
+- [x] stworzyć pierwszy schemat `scene-v1.json` dla podłóg i dachów;
+- [ ] rozszerzyć schemat o obiekty, prototypy i kolizje.
 
 ### M2 — geometria debugowa
 

@@ -9,6 +9,12 @@ from typing import BinaryIO
 MAP_VERSIONS = frozenset({19, 20})
 MAP_HEADER_STRUCT = Struct(">i16s9iI44i")
 MAP_HEADER_SIZE = MAP_HEADER_STRUCT.size
+SQUARE_GRID_WIDTH = 100
+SQUARE_GRID_HEIGHT = 100
+SQUARE_GRID_SIZE = SQUARE_GRID_WIDTH * SQUARE_GRID_HEIGHT
+ELEVATION_ABSENT_FLAGS = (2, 4, 8)
+_INT32 = Struct(">i")
+_TILE_LAYER = Struct(f">{SQUARE_GRID_SIZE}I")
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +32,28 @@ class MapHeader:
     map_index: int
     last_visit_time: int
     reserved: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MapTile:
+    floor_id: int
+    roof_id: int
+    roof_flags: int
+    raw: int
+
+
+@dataclass(frozen=True, slots=True)
+class MapTileLayer:
+    elevation: int
+    tiles: tuple[MapTile, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MapCore:
+    header: MapHeader
+    global_variables: tuple[int, ...]
+    local_variables: tuple[int, ...]
+    tile_layers: tuple[MapTileLayer, ...]
 
 
 def read_map_header(stream: BinaryIO, *, validate_version: bool = True) -> MapHeader:
@@ -55,6 +83,54 @@ def read_map_header(stream: BinaryIO, *, validate_version: bool = True) -> MapHe
         map_index=values[10],
         last_visit_time=values[11],
         reserved=tuple(values[12:]),
+    )
+
+
+def _read_int32_values(stream: BinaryIO, count: int, label: str) -> tuple[int, ...]:
+    raw = stream.read(count * _INT32.size)
+    if len(raw) != count * _INT32.size:
+        raise EOFError(f"expected {count} {label}, got {len(raw) // _INT32.size}")
+    if count == 0:
+        return ()
+    return Struct(f">{count}i").unpack(raw)
+
+
+def read_map_core(stream: BinaryIO) -> MapCore:
+    """Read the header, variables, and floor/roof tile layers of a MAP file."""
+    header = read_map_header(stream)
+    global_variables = _read_int32_values(
+        stream, header.global_variables_count, "global variables"
+    )
+    local_variables = _read_int32_values(
+        stream, header.local_variables_count, "local variables"
+    )
+
+    layers: list[MapTileLayer] = []
+    for elevation, absent_flag in enumerate(ELEVATION_ABSENT_FLAGS):
+        if header.flags & absent_flag:
+            continue
+        raw = stream.read(_TILE_LAYER.size)
+        if len(raw) != _TILE_LAYER.size:
+            raise EOFError(
+                f"expected {_TILE_LAYER.size} bytes for elevation {elevation}, got {len(raw)}"
+            )
+        packed_tiles = _TILE_LAYER.unpack(raw)
+        tiles = tuple(
+            MapTile(
+                floor_id=packed & 0xFFF,
+                roof_id=(packed >> 16) & 0xFFF,
+                roof_flags=(packed >> 28) & 0xF,
+                raw=packed,
+            )
+            for packed in packed_tiles
+        )
+        layers.append(MapTileLayer(elevation=elevation, tiles=tiles))
+
+    return MapCore(
+        header=header,
+        global_variables=global_variables,
+        local_variables=local_variables,
+        tile_layers=tuple(layers),
     )
 
 

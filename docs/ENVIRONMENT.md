@@ -15,6 +15,11 @@
 - Godot 4.7.2 stable;
 - źródła `fallout2-ce` — terminal w tej sesji ma zablokowane połączenia pobierające.
 
+Próba globalnej instalacji przez `winget` została wykonana. Python został
+rozpoznany, natomiast instalacja CMake zatrzymała się na błędzie `0x8A150001`
+środowiska App Installer. Ten sam skrypt powinien zadziałać w zwykłym terminalu
+Windows z dostępem do źródeł `winget`.
+
 ## Docelowe wersje
 
 - Python: obecne 3.14.3 spełnia wymaganie projektu `>=3.13`;

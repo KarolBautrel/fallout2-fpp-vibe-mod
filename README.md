@@ -43,5 +43,31 @@ Stan środowiska można sprawdzić bez zmian w systemie:
 .\scripts\check-prereqs.ps1
 ```
 
+Archiwum zainstalowanej gry można bezpiecznie przejrzeć bez jego modyfikacji:
+
+```powershell
+.\.venv\Scripts\python.exe -m fo2remix dat-list `
+  "C:\Program Files (x86)\Steam\steamapps\common\Fallout 2\master.dat" `
+  --suffix .map
+```
+
+Nagłówek jednej mapy można sprawdzić i opcjonalnie skopiować mapę do
+ignorowanego przez Git katalogu `artifacts/`:
+
+```powershell
+.\.venv\Scripts\python.exe -m fo2remix map-extract `
+  "C:\Program Files (x86)\Steam\steamapps\common\Fallout 2\master.dat" `
+  "maps\artemple.map" --output artifacts\artemple.map
+```
+
+Pierwszy neutralny opis sceny dla przyszłego renderera Godot:
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+.\.venv\Scripts\python.exe -m fo2remix scene-export `
+  "C:\Program Files (x86)\Steam\steamapps\common\Fallout 2\master.dat" `
+  "maps\artemple.map" artifacts\artemple.scene-v1.json
+```
+
 Szczegóły znajdują się w `docs/MODDING_PLAN.md` oraz `docs/ENVIRONMENT.md`.
 

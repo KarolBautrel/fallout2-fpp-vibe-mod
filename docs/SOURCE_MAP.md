@@ -55,11 +55,19 @@ Nie kopiujemy projekcji ekranowej bezpośrednio do świata 3D. Najpierw zachowuj
 
 Pierwszy parser nie będzie próbował odczytywać wszystkich obiektów. Zacznie od nagłówka mapy i współrzędnych, a obiekty dojdą po sklonowaniu źródeł i wybraniu konkretnej lokacji.
 
+## Potwierdzone na instalacji Steam
+
+- parser katalogu `master.dat` znalazł 23 140 wpisów i 155 plików `.map`;
+- `maps\artemple.map` poprawnie rozpakowano przez zlib;
+- nagłówek ma wersję `20`, nazwę `ARTEMPLE.MAP` i startowy heks `18492`;
+- flagi `12` oznaczają, że w pliku istnieje tylko poziom `0`;
+- poziom zawiera 10 000 wartości podłoga/dach, zgodnie z siatką `100 × 100`.
+
 ## Najbliższy krok
 
-1. Sklonować i przypiąć `fallout2-ce`.
-2. Zidentyfikować małą mapę w `master.dat`.
-3. Wyodrębnić ją lokalnie do ignorowanego `artifacts/`.
-4. Uruchomić `fo2remix.map_format.read_map_header` na prawdziwym nagłówku.
-5. Porównać wynik z logiem debug builda `fallout2-ce`.
+1. Sklonować i przypiąć `fallout2-ce`, gdy terminal odzyska dostęp do sieci.
+2. Rozpoznać listy nazw kafelków i format `.frm`, aby powiązać ID z grafiką.
+3. Wczytać `artemple.scene-v1.json` do minimalnego projektu Godot.
+4. Narysować podłogę zastępczymi materiałami i zaznaczyć startowy heks.
+5. Dodać przełączanie kamery ISO/TPP nad tą samą sceną.
 

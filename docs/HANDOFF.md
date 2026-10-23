@@ -8,7 +8,7 @@ Stan zapisany 23 października 2026. Projekt można wznowić od razu na branchu
 Najlepiej uruchomić Codexa bezpośrednio w katalogu:
 
 ```text
-C:\Users\karol\AppData\Local\Temp\vibe-modding\repos\fallout2-perspective-remix
+C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
 ```
 
 Jeżeli nowa sesja zostanie otwarta gdzie indziej, należy podać powyższą ścieżkę
@@ -19,21 +19,17 @@ Przykładowy tekst na rozpoczęcie kolejnej sesji:
 
 ```text
 Wracamy do fallout2-fpp-vibe-mod. Repo jest w
-C:\Users\karol\AppData\Local\Temp\vibe-modding\repos\fallout2-perspective-remix.
+C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod.
 Przeczytaj docs/HANDOFF.md i kontynuuj z brancha prototype/iso-fpp.
 ```
 
-Uwaga: repo znajduje się obecnie pod `AppData\Local\Temp`. Kod jest bezpieczny
-na GitHubie, ale lokalne `.venv` i ignorowane artefakty mogą zostać usunięte
-przez czyszczenie plików tymczasowych. Przy kolejnym wznowieniu warto przenieść
-lub sklonować repo do stałego katalogu, np.
-`C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod`.
+Repo znajduje się w stałym katalogu `Documents`, więc lokalne `.venv` i
+ignorowane artefakty nie są już narażone na automatyczne czyszczenie katalogu
+tymczasowego.
 
 ## Lokalizacja i Git
 
-- katalog roboczy: `C:\Users\karol\AppData\Local\Temp\vibe-modding\repos\fallout2-perspective-remix`;
-- docelowa lokalizacja użytkownika: `C:\Users\karol\Desktop\vibe-modding`;
-- sandbox nie dostał prawa zapisu do Pulpitu, dlatego projekt pozostał w katalogu tymczasowym;
+- katalog roboczy: `C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod`;
 - aktywny branch: `prototype/iso-fpp`;
 - ostatni ukończony commit przed tym handoffem: `8f92ff6`.
 
@@ -85,7 +81,7 @@ wykonać w zwykłym PowerShellu użytkownika lub ręcznie ze stron producentów.
 Po zainstalowaniu narzędzi:
 
 ```powershell
-cd "C:\Users\karol\AppData\Local\Temp\vibe-modding\repos\fallout2-perspective-remix"
+cd "C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod"
 .\scripts\check-prereqs.ps1
 .\scripts\bootstrap.ps1 -Python py -InstallDependencies
 .\.venv\Scripts\python.exe -m pytest
@@ -96,9 +92,6 @@ Do czasu dodania Godota do `PATH` sprawdzenie należy wykonać tak:
 ```powershell
 .\scripts\check-prereqs.ps1 -GodotPath "$env:USERPROFILE\Desktop\Gierka\installers\Godot_v4.7-stable_win64.exe\Godot_v4.7-stable_win64_console.exe"
 ```
-
-Jeśli projekt zostanie wcześniej skopiowany na Pulpit, należy użyć nowej
-lokalizacji zamiast ścieżki z `AppData\Local\Temp`.
 
 ## Następny etap
 

@@ -6,13 +6,13 @@
 - Node.js i npm;
 - Python `3.14.3` dostępny przez launcher `py`;
 - działające projektowe `.venv` korzystające z systemowych pakietów bazowych;
+- przenośny Godot `4.7 stable` w `Desktop\Gierka\installers`;
 - Fallout 2 Steam w oczekiwanej lokalizacji.
 
 ## Brakujące
 
 - CMake;
-- MSVC Build Tools z workloadem Desktop development with C++;
-- Godot 4.7.2 stable;
+- Visual Studio Build Tools z workloadem Desktop development with C++;
 - źródła `fallout2-ce` — terminal w tej sesji ma zablokowane połączenia pobierające.
 
 Próba globalnej instalacji przez `winget` została wykonana. Python został
@@ -24,8 +24,8 @@ Windows z dostępem do źródeł `winget`.
 
 - Python: obecne 3.14.3 spełnia wymaganie projektu `>=3.13`;
 - CMake: bieżące stabilne 4.x;
-- MSVC: aktualny toolset x64;
-- Godot: 4.7.2 stable, wersja standardowa bez .NET;
+- MSVC: aktualny toolset x64 z Visual Studio Build Tools 2026;
+- Godot: istniejące 4.7 stable, wersja standardowa bez .NET;
 - `fallout2-ce`: przypięty commit zapisany po pierwszym udanym klonowaniu.
 
 ## Instalacja w zwykłym terminalu użytkownika

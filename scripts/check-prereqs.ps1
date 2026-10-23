@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$GodotPath = ''
+)
 
 $gamePath = 'C:\Program Files (x86)\Steam\steamapps\common\Fallout 2'
 $requiredGameFiles = @('fallout2.exe', 'master.dat', 'critter.dat', 'patch000.dat')
@@ -26,12 +28,20 @@ $gameFiles = foreach ($name in $requiredGameFiles) {
     [ordered]@{ name = $name; exists = Test-Path -LiteralPath $fullPath }
 }
 
+$detectedGodot = Find-Command @('godot.exe', 'godot4.exe', 'Godot_v4*.exe') -VerifyVersion
+if (-not $detectedGodot -and $GodotPath -and (Test-Path -LiteralPath $GodotPath)) {
+    & $GodotPath --version *> $null
+    if ($LASTEXITCODE -eq 0) {
+        $detectedGodot = (Get-Item -LiteralPath $GodotPath).FullName
+    }
+}
+
 $result = [ordered]@{
     git = Find-Command @('git.exe') -VerifyVersion
     python = Find-Command @('python.exe', 'py.exe') -VerifyVersion
     cmake = Find-Command @('cmake.exe') -VerifyVersion
     compiler = Find-Command @('cl.exe', 'clang-cl.exe')
-    godot = Find-Command @('godot.exe', 'godot4.exe', 'Godot_v4*.exe') -VerifyVersion
+    godot = $detectedGodot
     fallout2_path = $gamePath
     fallout2_exists = Test-Path -LiteralPath $gamePath
     fallout2_files = $gameFiles

@@ -67,7 +67,7 @@ def _prototype(pid: int, subtype: int | None = None) -> PrototypeSummary:
 
 def _art(fid: int) -> ArtReference:
     object_type = (fid & 0x0F000000) >> 24
-    type_name = "walls" if object_type == 3 else "scenery"
+    type_name = {2: "scenery", 3: "walls", 4: "tiles"}[object_type]
     list_index = fid & 0xFFF
     file_name = f"asset{list_index}.frm"
     return ArtReference(
@@ -142,19 +142,29 @@ def test_exports_one_present_tile_layer() -> None:
 
     assert scene["schema"] == "fo2remix.scene-v1"
     assert scene["spawn"]["hex_index"] == 18492
+    assert scene["map"]["darkness"] == 1
     assert len(scene["tile_grid"]["layers"]) == 1
     assert scene["tile_grid"]["layers"][0]["floor_ids"][0] == 5
     assert scene["tile_grid"]["layers"][0]["roof_ids"][0] == 7
     assert scene["tile_grid"]["layers"][0]["roof_flags"][0] == 3
+    assert [record["tile_id"] for record in scene["tile_grid"]["art"]] == [5, 7]
+    assert scene["tile_grid"]["art"][0]["path"] == r"art\tiles\asset5.frm"
     assert scene["objects"]["declared_count"] == 3
     assert scene["objects"]["wall_count"] == 1
     assert scene["objects"]["door_count"] == 2
+    assert scene["objects"]["item_count"] == 0
     assert scene["objects"]["records"][1]["door"]["open"] is False
     assert scene["objects"]["records"][2]["door"]["open"] is True
     assert scene["objects"]["records"][0]["flags"]["multihex"] is True
     assert [record["instance_id"] for record in scene["objects"]["records"]] == [0, 1, 2]
     assert scene["objects"]["records"][1]["object_id"] == 201
     assert scene["objects"]["records"][2]["object_id"] == 201
+    assert scene["objects"]["records"][0]["frame"] == 0
+    assert scene["objects"]["records"][0]["screen_offset"] == [0, 0]
+    assert scene["objects"]["records"][0]["light"] == {
+        "distance": 0,
+        "intensity": 0,
+    }
     assert scene["objects"]["records"][0]["art"] == {
         "type": "walls",
         "list_index": 1,

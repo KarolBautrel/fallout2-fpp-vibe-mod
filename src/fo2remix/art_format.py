@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from .dat_archive import DatArchive
 from .frm_format import read_color_palette, read_frm_metadata, render_frm_rgba
@@ -109,7 +110,7 @@ class ArtColorCatalog:
         self.art_catalog = art_catalog
         self._palette: tuple[tuple[int, int, int, int], ...] | None = None
         self._cache: dict[int, tuple[int, int, int]] = {}
-        self._metadata_cache: dict[int, dict[str, int]] = {}
+        self._metadata_cache: dict[int, dict[str, Any]] = {}
 
     def resolve(self, fid: int) -> tuple[int, int, int]:
         cached = self._cache.get(fid)
@@ -144,10 +145,24 @@ class ArtColorCatalog:
             "frame_count": metadata.frame_count,
             "frames_per_second": metadata.frames_per_second,
             "action_frame": metadata.action_frame,
+            "rotation_offsets_x": list(metadata.rotation_offsets_x),
+            "rotation_offsets_y": list(metadata.rotation_offsets_y),
+            "rotations": [
+                [
+                    {
+                        "width": frame.width,
+                        "height": frame.height,
+                        "offset_x": frame.offset_x,
+                        "offset_y": frame.offset_y,
+                    }
+                    for frame in frames
+                ]
+                for frames in metadata.rotations
+            ],
         }
         return color
 
-    def resolve_metadata(self, fid: int) -> dict[str, int]:
+    def resolve_metadata(self, fid: int) -> dict[str, Any]:
         if fid not in self._metadata_cache:
             self.resolve(fid)
         return self._metadata_cache[fid]

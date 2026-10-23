@@ -32,6 +32,9 @@ const INTERACTION_RAY_DISTANCE := 2.25
 const INFERRED_CEILING_MIN_HEXES := 16
 const INTERIOR_CEILING_MIN_WALLS := 100
 const INTERIOR_CEILING_WALL_DENSITY := 0.08
+const PROP_PIXELS_PER_METER := 48.0
+const PROP_MAX_HEIGHT := 2.85
+const PROP_LIGHT_LIMIT := 12
 const CAMERA_ISO := "ISO"
 const CAMERA_FPP := "FPP"
 
@@ -47,7 +50,7 @@ var inferred_ceiling_component_count := 0
 var ceiling_strategy := "roof_tiles"
 var elevation_roots := {}
 var active_elevation := -1
-var debug_object_counts := {"wall": 0, "door": 0, "scenery": 0}
+var debug_object_counts := {"wall": 0, "door": 0, "scenery": 0, "item": 0}
 var wall_mesh_face_count := 0
 var wall_mesh_elevation_count := 0
 var wall_profile_match_count := 0
@@ -58,8 +61,14 @@ var object_visuals := {}
 var object_instance_colors := {}
 var object_collision_shapes := {}
 var door_art_overlays := {}
+var prop_art_overlays: Array[Dictionary] = []
+var prop_light_sources: Array[Dictionary] = []
+var tile_art_by_id := {}
 var image_texture_cache := {}
 var door_art_overlay_count := 0
+var prop_art_overlay_count := 0
+var active_prop_light_count := 0
+var prop_animation_time := 0.0
 var interaction_status := "No object selected"
 var player
 var iso_camera: Camera3D
@@ -175,9 +184,11 @@ func _process(delta: float) -> void:
 	if player == null:
 		return
 	_update_cameras()
+	_update_prop_animations(delta)
 	hud_refresh_timer -= delta
 	if hud_refresh_timer <= 0.0:
 		hud_refresh_timer = 0.25
+		_refresh_prop_lights()
 		_update_hud()
 
 
@@ -222,14 +233,14 @@ func _create_environment() -> void:
 	environment.background_color = Color("071018")
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color("b7c9d6")
-	environment.ambient_light_energy = 0.7
+	environment.ambient_light_energy = 0.42
 	world_environment.environment = environment
 	add_child(world_environment)
 
 	var sun := DirectionalLight3D.new()
 	sun.name = "DebugSun"
 	sun.rotation_degrees = Vector3(-55.0, -35.0, 0.0)
-	sun.light_energy = 1.2
+	sun.light_energy = 0.85
 	sun.shadow_enabled = true
 	add_child(sun)
 
@@ -256,11 +267,19 @@ func _set_active_elevation(elevation: int) -> void:
 	for elevation_value in elevation_roots:
 		var layer_elevation := int(elevation_value)
 		var root: Node3D = elevation_roots[layer_elevation]
-		root.visible = layer_elevation == active_elevation
+		var layer_active := layer_elevation == active_elevation
+		root.visible = layer_active
+		for collision_value in root.find_children("*", "CollisionObject3D", true, false):
+			var collision_object: CollisionObject3D = collision_value
+			collision_object.collision_layer = 1 if layer_active else 0
 
 
 func _create_floor_grid() -> void:
 	var tile_grid: Dictionary = scene_data["tile_grid"]
+	tile_art_by_id.clear()
+	for art_value in tile_grid.get("art", []):
+		var art_record: Dictionary = art_value
+		tile_art_by_id[int(art_record["tile_id"])] = art_record
 	assert(int(tile_grid["width"]) == Coordinates.FLOOR_GRID_WIDTH)
 	assert(int(tile_grid["height"]) == Coordinates.FLOOR_GRID_HEIGHT)
 	var layers: Array = tile_grid["layers"]
@@ -275,58 +294,99 @@ func _create_floor_grid() -> void:
 				rendered_cell_count += 1
 	assert(rendered_cell_count > 0)
 
-	var column_axis := Vector3(1.5, 0.0, -Coordinates.SQRT_3_OVER_2) * 0.992
-	var row_axis := Vector3(1.0, 0.0, 2.0 * Coordinates.SQRT_3_OVER_2) * 0.992
-	var cell_basis := Basis(column_axis, Vector3(0.0, FLOOR_THICKNESS, 0.0), row_axis)
+	var column_axis := Vector3(1.5, 0.0, -Coordinates.SQRT_3_OVER_2) * 1.004
+	var row_axis := Vector3(1.0, 0.0, 2.0 * Coordinates.SQRT_3_OVER_2) * 1.004
+	var cell_basis := Basis(column_axis, Vector3.UP, row_axis)
 	for layer_value in layers:
 		var layer: Dictionary = layer_value
 		var floor_ids: Array = layer["floor_ids"]
-		var layer_cell_count := 0
-		for floor_id in floor_ids:
-			if int(floor_id) != 1:
-				layer_cell_count += 1
-		if layer_cell_count == 0:
-			continue
-
-		var material := StandardMaterial3D.new()
-		material.vertex_color_use_as_albedo = true
-		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-
-		var cell_mesh := BoxMesh.new()
-		cell_mesh.size = Vector3.ONE
-		cell_mesh.material = material
-
-		var multi_mesh := MultiMesh.new()
-		multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
-		multi_mesh.use_colors = true
-		multi_mesh.mesh = cell_mesh
-		multi_mesh.instance_count = layer_cell_count
-
-		var instance_index := 0
+		var indices_by_floor_id := {}
 		for tile_index in FLOOR_CELL_COUNT:
 			var floor_id := int(floor_ids[tile_index])
 			if floor_id == 1:
 				continue
-			var column := Coordinates.FLOOR_GRID_WIDTH - 1 - (
-				tile_index % Coordinates.FLOOR_GRID_WIDTH
-			)
-			var row := int(tile_index / Coordinates.FLOOR_GRID_WIDTH)
-			var origin := Coordinates.square_grid_to_world(
-				column,
-				row,
-				int(layer["elevation"])
-			)
-			origin.y -= FLOOR_THICKNESS * 0.5
-			multi_mesh.set_instance_transform(instance_index, Transform3D(cell_basis, origin))
-			multi_mesh.set_instance_color(instance_index, _debug_floor_color(floor_id))
-			instance_index += 1
+			if not indices_by_floor_id.has(floor_id):
+				indices_by_floor_id[floor_id] = []
+			indices_by_floor_id[floor_id].append(tile_index)
 
-		var layer_instances := MultiMeshInstance3D.new()
-		var elevation := int(layer["elevation"])
-		layer_instances.name = "FloorGrid100x100Elevation%d" % elevation
-		layer_instances.multimesh = multi_mesh
-		floor_instances.append(layer_instances)
-		_get_elevation_root(elevation).add_child(layer_instances)
+		for floor_id_value in indices_by_floor_id:
+			var floor_id := int(floor_id_value)
+			var tile_indices: Array = indices_by_floor_id[floor_id]
+			var material := _create_floor_material(floor_id)
+			var cell_mesh := _create_floor_cell_mesh(material)
+			var multi_mesh := MultiMesh.new()
+			multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
+			multi_mesh.mesh = cell_mesh
+			multi_mesh.instance_count = tile_indices.size()
+			for instance_index in tile_indices.size():
+				var tile_index := int(tile_indices[instance_index])
+				var column := Coordinates.FLOOR_GRID_WIDTH - 1 - (
+					tile_index % Coordinates.FLOOR_GRID_WIDTH
+				)
+				var row := int(tile_index / Coordinates.FLOOR_GRID_WIDTH)
+				var origin := Coordinates.square_grid_to_world(
+					column,
+					row,
+					int(layer["elevation"])
+				)
+				origin.y += 0.012
+				multi_mesh.set_instance_transform(
+					instance_index,
+					Transform3D(cell_basis, origin)
+				)
+
+			var layer_instances := MultiMeshInstance3D.new()
+			var elevation := int(layer["elevation"])
+			layer_instances.name = "Floor%dElevation%d" % [floor_id, elevation]
+			layer_instances.multimesh = multi_mesh
+			floor_instances.append(layer_instances)
+			_get_elevation_root(elevation).add_child(layer_instances)
+
+
+func _create_floor_material(floor_id: int) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.roughness = 0.9
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var art: Dictionary = tile_art_by_id.get(floor_id, {})
+	var source_path := String(art.get("path", ""))
+	if not source_path.is_empty():
+		var map_key := _map_stem(String(scene_data["map"]["name"]))
+		var file_stem := source_path.replace("\\", "/").get_file().get_basename().to_lower()
+		var cache_path := "res://../artifacts/art-cache/%s/tiles/%s-r0-f0.png" % [
+			map_key,
+			file_stem,
+		]
+		var texture := _load_cached_image_texture(cache_path)
+		if texture != null:
+			material.albedo_texture = texture
+			material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+			return material
+	material.albedo_color = _debug_floor_color(floor_id)
+	return material
+
+
+func _create_floor_cell_mesh(material: Material) -> ArrayMesh:
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var vertices := [
+		Vector3(-0.5, 0.0, -0.5),
+		Vector3(0.5, 0.0, -0.5),
+		Vector3(0.5, 0.0, 0.5),
+		Vector3(-0.5, 0.0, 0.5),
+	]
+	var uvs := [
+		Vector2(46.5 / 80.0, 0.5 / 36.0),
+		Vector2(78.5 / 80.0, 22.5 / 36.0),
+		Vector2(33.5 / 80.0, 34.5 / 36.0),
+		Vector2(0.5 / 80.0, 11.5 / 36.0),
+	]
+	for index in [0, 2, 1, 0, 3, 2]:
+		surface.set_normal(Vector3.UP)
+		surface.set_uv(uvs[index])
+		surface.add_vertex(vertices[index])
+	var mesh := surface.commit()
+	mesh.surface_set_material(0, material)
+	return mesh
 
 
 func _create_ground_collision() -> void:
@@ -363,8 +423,7 @@ func _create_ceiling_grid() -> void:
 				ceiling_strategy = "floor_footprint"
 				_create_floor_footprint_ceiling(layer, cell_basis)
 			else:
-				ceiling_strategy = "enclosed_regions"
-				_create_inferred_ceiling(int(layer["elevation"]))
+				ceiling_strategy = "outdoor_none"
 			continue
 
 		var material := StandardMaterial3D.new()
@@ -600,6 +659,7 @@ func _create_map_object_debug_geometry() -> void:
 	var walls: Array[Dictionary] = []
 	var doors: Array[Dictionary] = []
 	var scenery: Array[Dictionary] = []
+	var items: Array[Dictionary] = []
 	for value in records:
 		var record: Dictionary = value
 		var instance_id := int(record["instance_id"])
@@ -620,10 +680,13 @@ func _create_map_object_debug_geometry() -> void:
 				doors.append(record)
 			"scenery":
 				scenery.append(record)
+			"item":
+				items.append(record)
 
 	debug_object_counts["wall"] = walls.size()
 	debug_object_counts["door"] = doors.size()
 	debug_object_counts["scenery"] = scenery.size()
+	debug_object_counts["item"] = items.size()
 	wall_profile_match_count = 0
 	for wall in walls:
 		if not _art_profile_for_record(wall).is_empty():
@@ -631,9 +694,18 @@ func _create_map_object_debug_geometry() -> void:
 	_create_wall_topology_mesh(walls)
 	_create_object_instances("DebugDoors", doors, Vector3(0.9, 2.1, 0.18), Color("d18152"))
 	_create_door_art_overlays(doors)
+	var billboard_records: Array[Dictionary] = []
+	billboard_records.append_array(scenery)
+	billboard_records.append_array(items)
+	var rendered_scenery := _create_scenery_art_overlays(billboard_records)
+	var fallback_scenery: Array[Dictionary] = []
+	for record in billboard_records:
+		var instance_id := int(record["instance_id"])
+		if not rendered_scenery.has(instance_id) and not _is_hidden_scenery(record):
+			fallback_scenery.append(record)
 	_create_object_instances(
-		"DebugScenery",
-		scenery,
+		"DebugSceneryFallback",
+		fallback_scenery,
 		Vector3(0.48, 1.1, 0.48),
 		Color("638a68")
 	)
@@ -642,6 +714,8 @@ func _create_map_object_debug_geometry() -> void:
 func _create_wall_topology_mesh(records: Array[Dictionary]) -> void:
 	var cells_by_elevation := {}
 	for record in records:
+		if String(_art_profile_for_record(record).get("render_mode", "geometry")) == "hidden":
+			continue
 		var elevation := int(record["elevation"])
 		if not cells_by_elevation.has(elevation):
 			cells_by_elevation[elevation] = {}
@@ -660,59 +734,30 @@ func _create_wall_topology_mesh(records: Array[Dictionary]) -> void:
 			var tile := int(tile_value)
 			var record: Dictionary = cells[tile]
 			var center := Coordinates.hex_index_to_world(tile, elevation)
-			var base_y := center.y
-			var top_y := base_y + Coordinates.ELEVATION_HEIGHT
 			var wall_color := _debug_wall_color(record)
+			var neighbors: Array[int] = []
 			for direction_index in 6:
 				var neighbor := Coordinates.tile_in_direction(tile, direction_index)
 				if neighbor != tile and cells.has(neighbor):
-					continue
-				var outward := Coordinates.direction_to_world(tile, direction_index)
-				var tangent := Vector3(-outward.z, 0.0, outward.x)
-				var face_center := center + outward * 0.5
-				var half_side := 0.28867513459481287
-				var base_a := Vector3(
-					face_center.x - tangent.x * half_side,
-					base_y,
-					face_center.z - tangent.z * half_side
-				)
-				var base_b := Vector3(
-					face_center.x + tangent.x * half_side,
-					base_y,
-					face_center.z + tangent.z * half_side
-				)
-				var top_a := Vector3(base_a.x, top_y, base_a.z)
-				var top_b := Vector3(base_b.x, top_y, base_b.z)
-				_add_colored_triangle(surface, base_a, top_b, base_b, wall_color)
-				_add_colored_triangle(surface, base_a, top_a, top_b, wall_color)
-				wall_mesh_face_count += 2
-
-			for direction_index in 6:
-				var first_direction := Coordinates.direction_to_world(tile, direction_index)
-				var second_direction := Coordinates.direction_to_world(
-					tile,
-					(direction_index + 1) % 6
-				)
-				var corner_a := Vector3(
-					center.x + (first_direction.x + second_direction.x) / 3.0,
-					top_y,
-					center.z + (first_direction.z + second_direction.z) / 3.0
-				)
-				var next_first := Coordinates.direction_to_world(tile, (direction_index + 1) % 6)
-				var next_second := Coordinates.direction_to_world(tile, (direction_index + 2) % 6)
-				var corner_b := Vector3(
-					center.x + (next_first.x + next_second.x) / 3.0,
-					top_y,
-					center.z + (next_first.z + next_second.z) / 3.0
-				)
-				_add_colored_triangle(
+					neighbors.append(neighbor)
+					if neighbor > tile:
+						_add_wall_segment(
+							surface,
+							center,
+							Coordinates.hex_index_to_world(neighbor, elevation),
+							wall_color
+						)
+			if neighbors.size() == 1:
+				var neighbor_center := Coordinates.hex_index_to_world(neighbors[0], elevation)
+				var extension := (center - neighbor_center).normalized() * 0.5
+				_add_wall_segment(surface, center, center + extension, wall_color)
+			elif neighbors.is_empty():
+				_add_wall_segment(
 					surface,
-					Vector3(center.x, top_y, center.z),
-					corner_a,
-					corner_b,
-					wall_color.darkened(0.18)
+					center - Vector3.RIGHT * 0.5,
+					center + Vector3.RIGHT * 0.5,
+					wall_color
 				)
-				wall_mesh_face_count += 1
 
 		surface.generate_normals()
 		var mesh := surface.commit()
@@ -725,6 +770,21 @@ func _create_wall_topology_mesh(records: Array[Dictionary]) -> void:
 		instance.name = "WallTopologyElevation%d" % elevation
 		instance.mesh = mesh
 		_get_elevation_root(elevation).add_child(instance)
+
+
+func _add_wall_segment(
+	surface: SurfaceTool,
+	start: Vector3,
+	end: Vector3,
+	color: Color
+) -> void:
+	if start.distance_squared_to(end) < 0.001:
+		return
+	var start_top := start + Vector3.UP * Coordinates.ELEVATION_HEIGHT
+	var end_top := end + Vector3.UP * Coordinates.ELEVATION_HEIGHT
+	_add_colored_triangle(surface, start, end_top, end, color)
+	_add_colored_triangle(surface, start, start_top, end_top, color)
+	wall_mesh_face_count += 2
 
 
 func _add_colored_triangle(
@@ -864,11 +924,13 @@ func _create_door_art_overlays(records: Array[Dictionary]) -> void:
 			continue
 		var normalized_path := source_path.replace("\\", "/").to_lower()
 		var file_stem := normalized_path.get_file().get_basename()
+		var art_type := String(art.get("type", "scenery")).to_lower()
 		var textures: Array[Texture2D] = []
 		for frame_index in frame_count:
 			var cache_path := (
-				"res://../artifacts/art-cache/%s/scenery/%s-r0-f%d.png" % [
+				"res://../artifacts/art-cache/%s/%s/%s-r0-f%d.png" % [
 					map_key,
+					art_type,
 					file_stem,
 					frame_index,
 				]
@@ -911,6 +973,183 @@ func _create_door_art_overlays(records: Array[Dictionary]) -> void:
 		}
 		door_art_overlay_count += 1
 		_refresh_door_art_frame(instance_id)
+
+
+func _create_scenery_art_overlays(records: Array[Dictionary]) -> Dictionary:
+	var rendered := {}
+	var map_key := _map_stem(String(scene_data["map"]["name"]))
+	prop_art_overlays.clear()
+	prop_light_sources.clear()
+	prop_art_overlay_count = 0
+	for record in records:
+		var profile := _art_profile_for_record(record)
+		if String(profile.get("render_mode", "billboard")) == "hidden":
+			var hidden_elevation := int(record["elevation"])
+			var hidden_light_position := Coordinates.hex_index_to_world(
+				int(record["hex_index"]),
+				hidden_elevation
+			) + Vector3.UP * 1.15
+			_create_prop_light(record, profile, hidden_light_position)
+			continue
+		var art: Dictionary = record.get("art", {})
+		var source_path := String(art.get("path", ""))
+		var frame: Dictionary = art.get("frame", {})
+		var frame_count := int(frame.get("frame_count", 1))
+		if source_path.is_empty() or frame_count <= 0:
+			continue
+		var normalized_path := source_path.replace("\\", "/").to_lower()
+		var file_stem := normalized_path.get_file().get_basename()
+		var art_type := String(art.get("type", "scenery")).to_lower()
+		var textures: Array[Texture2D] = []
+		for frame_index in frame_count:
+			var cache_path := (
+				"res://../artifacts/art-cache/%s/%s/%s-r0-f%d.png" % [
+					map_key,
+					art_type,
+					file_stem,
+					frame_index,
+				]
+			)
+			var texture := _load_cached_image_texture(cache_path)
+			if texture == null:
+				textures.clear()
+				break
+			textures.append(texture)
+		if textures.is_empty():
+			continue
+
+		var pixels_per_meter := float(profile.get("pixels_per_meter", PROP_PIXELS_PER_METER))
+		var width := float(textures[0].get_width()) / pixels_per_meter
+		var height := float(textures[0].get_height()) / pixels_per_meter
+		if height > PROP_MAX_HEIGHT:
+			var scale_factor := PROP_MAX_HEIGHT / height
+			width *= scale_factor
+			height = PROP_MAX_HEIGHT
+		var material := StandardMaterial3D.new()
+		material.albedo_texture = textures[0]
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		material.alpha_scissor_threshold = 0.34
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		material.roughness = 0.82
+		material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		material.billboard_keep_scale = true
+		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		var quad := QuadMesh.new()
+		quad.size = Vector2(width, height)
+		quad.material = material
+		var instance := MeshInstance3D.new()
+		var instance_id := int(record["instance_id"])
+		instance.name = "SceneryArt%d_%s" % [instance_id, file_stem]
+		instance.mesh = quad
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var elevation := int(record["elevation"])
+		var vertical_offset := float(profile.get("vertical_offset", 0.0))
+		instance.position = Coordinates.hex_index_to_world(
+			int(record["hex_index"]),
+			elevation
+		) + Vector3.UP * (height * 0.5 + vertical_offset)
+		_get_elevation_root(elevation).add_child(instance)
+		var initial_frame := posmod(int(record.get("frame", 0)), textures.size())
+		material.albedo_texture = textures[initial_frame]
+		prop_art_overlays.append({
+			"instance_id": instance_id,
+			"instance": instance,
+			"material": material,
+			"textures": textures,
+			"frames_per_second": maxf(float(frame.get("frames_per_second", 1)), 1.0),
+			"frame_offset": initial_frame,
+			"current_frame": initial_frame,
+			"animate": bool(profile.get("animate", false)),
+		})
+		object_visuals[instance_id] = {
+			"kind": "prop",
+			"instance": instance,
+			"material": material,
+		}
+		object_instance_colors[instance_id] = Color.WHITE
+		rendered[instance_id] = true
+		prop_art_overlay_count += 1
+		_create_prop_light(record, profile, instance.position)
+	return rendered
+
+
+func _is_hidden_scenery(record: Dictionary) -> bool:
+	var profile := _art_profile_for_record(record)
+	return String(profile.get("render_mode", "billboard")) == "hidden"
+
+
+func _create_prop_light(record: Dictionary, profile: Dictionary, position: Vector3) -> void:
+	var light_data: Dictionary = record.get("light", {})
+	var distance := int(light_data.get("distance", 0))
+	var intensity := int(light_data.get("intensity", 0))
+	var profile_emits := bool(profile.get("emits_light", false))
+	if distance <= 0 and profile_emits:
+		distance = int(profile.get("fallback_light_distance", 4))
+	if intensity <= 0 and profile_emits:
+		intensity = int(profile.get("fallback_light_intensity", 49152))
+	if distance <= 0 or intensity <= 0:
+		return
+	var light := OmniLight3D.new()
+	light.name = "SourceLight%d" % int(record["instance_id"])
+	light.position = position + Vector3.UP * float(profile.get("light_height_offset", 0.0))
+	light.omni_range = maxf(2.0, float(distance) * 1.25)
+	light.light_energy = clampf(float(intensity) / 65536.0 * 2.2, 0.35, 2.4)
+	light.omni_attenuation = 1.6
+	light.light_color = Color(String(profile.get("light_color", "ffd19a")))
+	light.shadow_enabled = false
+	light.visible = false
+	_get_elevation_root(int(record["elevation"])).add_child(light)
+	prop_light_sources.append({
+		"node": light,
+		"elevation": int(record["elevation"]),
+		"base_energy": light.light_energy,
+		"phase": float(int(record["instance_id"]) % 17) * 0.37,
+	})
+
+
+func _update_prop_animations(delta: float) -> void:
+	prop_animation_time += delta
+	for overlay in prop_art_overlays:
+		if not bool(overlay.get("animate", false)):
+			continue
+		var textures: Array = overlay["textures"]
+		if textures.size() <= 1:
+			continue
+		var frame_index := int(
+			floor(prop_animation_time * float(overlay["frames_per_second"]))
+			+ int(overlay["frame_offset"])
+		) % textures.size()
+		if frame_index == int(overlay["current_frame"]):
+			continue
+		var material: StandardMaterial3D = overlay["material"]
+		material.albedo_texture = textures[frame_index]
+		overlay["current_frame"] = frame_index
+
+
+func _refresh_prop_lights() -> void:
+	if player == null:
+		return
+	var player_elevation := int(player.logical_state["elevation"])
+	var ranked: Array[Dictionary] = []
+	for source in prop_light_sources:
+		var light: OmniLight3D = source["node"]
+		light.visible = false
+		if int(source["elevation"]) != player_elevation:
+			continue
+		ranked.append({
+			"source": source,
+			"distance_squared": light.global_position.distance_squared_to(player.global_position),
+		})
+	ranked.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a["distance_squared"]) < float(b["distance_squared"])
+	)
+	active_prop_light_count = mini(PROP_LIGHT_LIMIT, ranked.size())
+	for index in active_prop_light_count:
+		var source: Dictionary = ranked[index]["source"]
+		var light: OmniLight3D = source["node"]
+		light.visible = true
+		var flicker := 0.92 + 0.08 * sin(prop_animation_time * 9.0 + float(source["phase"]))
+		light.light_energy = float(source["base_energy"]) * flicker
 
 
 func _load_cached_image_texture(path: String) -> Texture2D:
@@ -1023,7 +1262,10 @@ func _count_wall_elevations() -> int:
 	var elevations := {}
 	for record_value in scene_data["objects"]["records"]:
 		var record: Dictionary = record_value
-		if String(record.get("kind", "")) == "wall":
+		if (
+			String(record.get("kind", "")) == "wall"
+			and String(_art_profile_for_record(record).get("render_mode", "geometry")) != "hidden"
+		):
 			elevations[int(record["elevation"])] = true
 	return elevations.size()
 
@@ -1307,9 +1549,14 @@ func _rebuild_map_geometry() -> void:
 	object_instance_colors.clear()
 	object_collision_shapes.clear()
 	door_art_overlays.clear()
+	prop_art_overlays.clear()
+	prop_light_sources.clear()
+	tile_art_by_id.clear()
 	image_texture_cache.clear()
 	door_art_overlay_count = 0
-	debug_object_counts = {"wall": 0, "door": 0, "scenery": 0}
+	prop_art_overlay_count = 0
+	active_prop_light_count = 0
+	debug_object_counts = {"wall": 0, "door": 0, "scenery": 0, "item": 0}
 	wall_mesh_face_count = 0
 	wall_mesh_elevation_count = 0
 	wall_profile_match_count = 0
@@ -1658,6 +1905,14 @@ func _refresh_object_colors() -> void:
 	for instance_id in object_visuals:
 		var visual: Dictionary = object_visuals[instance_id]
 		var color: Color = object_instance_colors[instance_id]
+		if String(visual.get("kind", "multimesh")) == "prop":
+			if object_states.has(instance_id) and bool(object_states[instance_id]["activated"]):
+				color = Color("f4d35e")
+			elif int(instance_id) == selected_id:
+				color = Color("8ff5ff")
+			var prop_material: StandardMaterial3D = visual["material"]
+			prop_material.albedo_color = color
+			continue
 		var transform: Transform3D = visual["base_transform"]
 		if (
 			object_states.has(instance_id)
@@ -1720,7 +1975,7 @@ func _update_hud() -> void:
 	state_label.text = (
 		"%s  |  %s  |  %d FPS  |  speed %.2f\n"
 		+ "hex %d  grid (%d, %d)  elevation %d  direction %d\n"
-		+ "walls %d  doors %d  scenery %d  blocking hexes %d  selected instance %d\n"
+		+ "walls %d  doors %d  scenery %d  items %d  props %d  lights %d  blocking %d  selected %d\n"
 		+ "bridge %s  authority %s  events %d/%d  %s\n"
 		+ "%s\n"
 		+ "%s   TAB: ISO/FPP"
@@ -1737,6 +1992,9 @@ func _update_hud() -> void:
 		debug_object_counts["wall"],
 		debug_object_counts["door"],
 		debug_object_counts["scenery"],
+		debug_object_counts["item"],
+		prop_art_overlay_count,
+		active_prop_light_count,
 		blocking_collision_count,
 		state["selection"],
 		bridge_transport_status,
@@ -1773,12 +2031,17 @@ func _run_contract_checks() -> void:
 	assert(object_records.size() == int(object_section["exported_count"]))
 	assert(int(object_section["wall_count"]) >= 2)
 	assert(debug_object_counts["wall"] == int(object_section["wall_count"]))
-	assert(wall_mesh_face_count > 0)
+	assert((wall_mesh_face_count > 0) == (wall_mesh_elevation_count > 0))
 	assert(wall_mesh_elevation_count == _count_wall_elevations())
 	assert(wall_profile_match_count <= debug_object_counts["wall"])
 	assert(debug_object_counts["door"] == int(object_section["door_count"]))
 	assert(door_art_overlay_count <= debug_object_counts["door"])
+	assert(
+		prop_art_overlay_count
+		<= debug_object_counts["scenery"] + debug_object_counts["item"]
+	)
 	assert(debug_object_counts["scenery"] == int(object_section["scenery_count"]))
+	assert(debug_object_counts["item"] == int(object_section.get("item_count", 0)))
 	var blocking_records: Array = scene_data["collision"]["blocking_hexes"]
 	assert(blocking_collision_count == blocking_records.size())
 	assert(blocking_collision_count >= 2)
@@ -2334,11 +2597,12 @@ func _write_evidence() -> void:
 	var state: Dictionary = player.logical_state
 	var round_trip_count := 11
 	var evidence := {
-		"schema": "fo2remix.godot-scene-contract-v4",
+		"schema": "fo2remix.godot-scene-contract-v5",
 		"fallout2_ce_commit": FALLOUT2_CE_COMMIT,
 		"scene_schema": scene_data["schema"],
 		"map": state["map_name"],
 		"floor_instances": _count_floor_instances(),
+		"floor_art_families": tile_art_by_id.size(),
 		"ceiling_instances": _count_ceiling_instances(),
 		"inferred_ceiling_cells": inferred_ceiling_cell_count,
 		"inferred_ceiling_components": inferred_ceiling_component_count,
@@ -2356,6 +2620,10 @@ func _write_evidence() -> void:
 			"doors": debug_object_counts["door"],
 			"door_art_overlays": door_art_overlay_count,
 			"scenery": debug_object_counts["scenery"],
+			"items": debug_object_counts["item"],
+			"scenery_art_overlays": prop_art_overlay_count,
+			"source_lights": prop_light_sources.size(),
+			"active_light_budget": PROP_LIGHT_LIMIT,
 			"blocking_hexes": blocking_collision_count,
 		},
 		"player_state": state,

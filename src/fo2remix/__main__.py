@@ -132,13 +132,14 @@ def _scene_art_cache(args: argparse.Namespace) -> int:
     archive = DatArchive(args.archive)
     scene_path = Path(args.scene)
     scene = json.loads(scene_path.read_text(encoding="utf-8"))
-    art_paths = {
-        str(record.get("art", {}).get("path", "")).lower(): str(
-            record.get("art", {}).get("path", "")
-        )
-        for record in scene["objects"]["records"]
-        if record.get("art", {}).get("path")
-    }
+    art_records = list(scene["objects"]["records"])
+    art_records.extend(scene.get("tile_grid", {}).get("art", []))
+    art_paths: dict[str, str] = {}
+    for record in art_records:
+        art_record = record.get("art", record)
+        art_path = str(art_record.get("path", ""))
+        if art_path:
+            art_paths[art_path.lower()] = art_path
     palette = read_color_palette(archive.read(args.palette_entry))
     output_root = Path(args.output_dir)
     assets: list[dict[str, object]] = []

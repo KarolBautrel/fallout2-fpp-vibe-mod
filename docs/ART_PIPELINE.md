@@ -30,9 +30,9 @@ Polecenie `frm-inspect` zostawiło dowody w ignorowanych plikach
 `artifacts/acavedr4.frm-metadata.json`. Pierwszy asset ma jedną klatkę
 `33 × 116`, a animowane drzwi mają 19 klatek i pierwszą klatkę `105 × 97`.
 Polecenie `scene-art-cache` przetwarza każdy unikalny asset sceny tylko raz.
-Dla ARCAVES z 2622 instancjami ścian utworzyło 126 unikalnych PNG i manifest
-`fo2remix.art-cache-v1` w około pół sekundy. Tryb `--all-frames` utworzył 166
-PNG o łącznym rozmiarze około 0,5 MB. Eksporter zapisuje również średni
+Cache obejmuje obecnie również źródłowe kafle podłóg i dachów: ARCAVES używa
+151 unikalnych FRM, a ARTEMPLE 193. Manifest ma schemat
+`fo2remix.art-cache-v1`. Eksporter zapisuje również średni
 kolor nieprzezroczystych pikseli FRM, z którego korzysta debugowy materiał 3D.
 Eksperyment z bezpośrednim nakładaniem klatki FRM na każdą odsłoniętą ścianę
 został odrzucony po teście wizualnym: izometryczne sprite'y tworzyły nachodzące
@@ -44,20 +44,37 @@ Drzwi korzystają z osobnego panelu źródłowego: stan zamknięty pokazuje klat
 `0`, a odebrane z bridge'a otwarcie przełącza grafikę na ostatnią klatkę FRM.
 Kolizja i stan nadal pochodzą z `fallout2-ce`, nie z animacji.
 
+`scene-v1` zapisuje teraz również `frame`, ekranowy offset instancji,
+`light.distance`, `light.intensity` oraz komplet deskryptorów klatek i rotacji
+FRM. Potwierdzenie na ARCAVES wykazało 54 widoczne pochodnie, ale ich własne
+pola światła są zerowe. Oświetlenie pochodzi z 76 osobnych, niewidzialnych
+rekordów `block.frm`. Godot zachowuje ten model zamiast przypisywać zgadywane
+światło każdej grafice pochodni.
+
 ## Co jest automatyczne
 
-Godot buduje obecnie jedną spójną siatkę debugowych ścian z zajętych heksów,
-usuwa niewidoczne ściany pomiędzy sąsiadującymi komórkami i rozdziela wynik na
-elevation. Podłogi, ściany, drzwi i sceneria z innych elevation są ukrywane,
+Godot buduje obecnie spójną siatkę ścian z segmentów łączących sąsiednie rekordy
+MAP. Dzięki temu ściana jest płaszczyzną, a nie sześciokątnym słupem na każdym
+heksie. Techniczne `art\\walls\\block.frm` nie są renderowane, lecz nadal
+uczestniczą w kolizji. Podłogi, ściany, drzwi i sceneria z innych elevation są ukrywane,
 gdy postać znajduje się na bieżącym poziomie. Ten kod działa na dowolnym
 `scene-v1`, więc kolejna lokacja nie wymaga osobnego modelowania topologii.
 Jeżeli MAP ma jawne `roof_ids`, powstają z nich sufity. Gdy dachy są puste,
-renderer wybiera jedną z dwóch automatycznych strategii. Dla gęstych wnętrz,
-takich jak ARCAVES, sufit pokrywa footprint wszystkich niepustych kafli podłogi;
-dla rzadszych map, takich jak ARTEMPLE, zamknięte regiony są wykrywane
-flood-fillem po blokadach. Płyty sufitu lekko zachodzą na górną krawędź ścian,
-co usuwa prześwity. Sufity są widoczne w FPP, ukryte w ISO i dzielone według
-aktywnego elevation.
+gęste wnętrza, takie jak ARCAVES, otrzymują sufit nad footprintem wszystkich
+niepustych kafli podłogi. Rzadka lokacja zewnętrzna ARTEMPLE nie dostaje
+automatycznego sufitu; wcześniejszy flood-fill błędnie przykrywał niebo. Płyty
+sufitu wnętrza lekko zachodzą na górną krawędź ścian, co usuwa prześwity.
+Sufity są widoczne w FPP, ukryte w ISO i dzielone według aktywnego elevation.
+
+Podłogi nie używają już kolorowych placeholderów. Typ `tiles` jest rozwiązywany
+przez ten sam `FID -> .lst -> FRM`, a izometryczny romb `80 x 36` jest mapowany
+na płaszczyznę świata przez cztery zmierzone narożniki nieprzezroczystego
+obszaru. ARCAVES wykorzystuje 25 rodzin kafli, a ARTEMPLE 166. Dekoracje
+scenerii są automatycznie tworzone jako billboardy 2.5D z zachowaniem klatek
+FRM; ARCAVES ma 119 takich grafik oraz 7 obiektów `item`, a ARTEMPLE 127 grafik
+scenerii. Wśród itemów ARCAVES są trzy `chest1.frm`, dwie wazy i kości. Skrzynie
+zachowują klatkę stanu z MAP i nie zapętlają animacji otwierania. Maksymalnie 12
+najbliższych źródłowych świateł na aktywnym elevation jest włączonych jednocześnie.
 
 ## Czego nie da się odzyskać automatycznie 1:1
 
@@ -83,7 +100,7 @@ zastąpi danych `MAP`/`PRO`/`FRM`.
 
 ## Następny etap
 
-Po akceptacji bieżącego wyglądu jednej lokacji następnym krokiem będzie
-płynne odtwarzanie pośrednich klatek drzwi oraz pierwsza reprezentacja ruchomego
-crittera. Profile materiałów nadal powinny być definiowane dla rodzin assetów,
-nie osobno dla map. Wygenerowane tekstury pozostają w ignorowanym `artifacts/`.
+Po teście użytkownika następnym krokiem będzie korekta wyjątków kotwic i skali
+billboardów, płynne odtwarzanie pośrednich klatek drzwi oraz pierwszy ruchomy
+critter. Profile nadal są definiowane dla rodzin assetów, nie osobno dla map.
+Wygenerowane tekstury pozostają w ignorowanym `artifacts/`.

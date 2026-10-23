@@ -2,6 +2,12 @@
   "schema": "fo2remix.art-profiles-v1",
   "profiles": [
     {
+      "id": "technical_wall_blocker",
+      "kind": "wall",
+      "art_path_prefix": "art\\walls\\block.frm",
+      "render_mode": "hidden"
+    },
+    {
       "id": "temple_stone",
       "kind": "wall",
       "art_path_prefix": "art\\walls\\temple",
@@ -9,6 +15,48 @@
       "roughness": 0.95,
       "source_example": "art\\walls\\temple19.frm",
       "source_opaque_average_rgb": [75, 59, 48]
+    },
+    {
+      "id": "technical_blocker",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\block.frm",
+      "render_mode": "hidden",
+      "light_color": "ffb067"
+    },
+    {
+      "id": "wall_torch",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\atorch",
+      "render_mode": "billboard",
+      "pixels_per_meter": 48.0,
+      "vertical_offset": 0.82,
+      "light_color": "ffb067"
+    },
+    {
+      "id": "fire_pit",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\firepit.frm",
+      "render_mode": "billboard",
+      "pixels_per_meter": 46.0,
+      "vertical_offset": 0.02,
+      "animate": true,
+      "light_color": "ff9c4a",
+      "light_height_offset": 0.15
+    },
+    {
+      "id": "waterfall",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\watfall",
+      "render_mode": "billboard",
+      "pixels_per_meter": 48.0,
+      "animate": true
+    },
+    {
+      "id": "source_scenery",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\",
+      "render_mode": "billboard",
+      "pixels_per_meter": 48.0
     }
   ]
 }

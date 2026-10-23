@@ -8,6 +8,7 @@ from typing import Any
 
 from .art_format import ArtReference
 from .map_format import (
+    OBJECT_TYPE_ITEM,
     OBJECT_TYPE_SCENERY,
     OBJECT_TYPE_WALL,
     SQUARE_GRID_HEIGHT,
@@ -29,7 +30,7 @@ def export_scene_v1(
     prototype_resolver: PrototypeResolver,
     art_resolver: Callable[[int], ArtReference] | None = None,
     art_color_resolver: Callable[[int], tuple[int, int, int]] | None = None,
-    art_metadata_resolver: Callable[[int], dict[str, int]] | None = None,
+    art_metadata_resolver: Callable[[int], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     map_file = read_map(BytesIO(map_data), prototype_resolver)
     core = map_file.core
@@ -46,9 +47,31 @@ def export_scene_v1(
             art_metadata_resolver=art_metadata_resolver,
         )
         for instance_id, obj in indexed_objects
-        if obj.fid_type in {OBJECT_TYPE_SCENERY, OBJECT_TYPE_WALL}
+        if obj.fid_type in {OBJECT_TYPE_ITEM, OBJECT_TYPE_SCENERY, OBJECT_TYPE_WALL}
     ]
     blocking_hexes = _export_blocking_hexes(indexed_objects)
+
+    tile_art: list[dict[str, Any]] = []
+    if art_resolver is not None:
+        tile_ids = sorted(
+            {
+                tile_id
+                for layer in core.tile_layers
+                for tile in layer.tiles
+                for tile_id in (tile.floor_id, tile.roof_id)
+                if tile_id != 1
+            }
+        )
+        tile_art = [
+            _export_art_reference(
+                0x04000000 | tile_id,
+                art_resolver=art_resolver,
+                art_color_resolver=art_color_resolver,
+                art_metadata_resolver=art_metadata_resolver,
+                extra={"tile_id": tile_id},
+            )
+            for tile_id in tile_ids
+        ]
 
     return {
         "schema": "fo2remix.scene-v1",
@@ -58,6 +81,7 @@ def export_scene_v1(
             "version": core.header.version,
             "index": core.header.map_index,
             "flags": core.header.flags,
+            "darkness": core.header.darkness,
         },
         "spawn": {
             "hex_index": core.header.entering_tile,
@@ -78,6 +102,7 @@ def export_scene_v1(
                 }
                 for layer in core.tile_layers
             ],
+            "art": tile_art,
         },
         "objects": {
             "declared_count": map_file.declared_object_count,
@@ -86,6 +111,7 @@ def export_scene_v1(
             "wall_count": sum(obj["kind"] == "wall" for obj in exported_objects),
             "door_count": sum(obj["kind"] == "door" for obj in exported_objects),
             "scenery_count": sum(obj["kind"] == "scenery" for obj in exported_objects),
+            "item_count": sum(obj["kind"] == "item" for obj in exported_objects),
             "records": exported_objects,
         },
         "collision": {
@@ -100,11 +126,16 @@ def _export_object(
     instance_id: int,
     art_resolver: Callable[[int], ArtReference] | None,
     art_color_resolver: Callable[[int], tuple[int, int, int]] | None,
-    art_metadata_resolver: Callable[[int], dict[str, int]] | None,
+    art_metadata_resolver: Callable[[int], dict[str, Any]] | None,
 ) -> dict[str, Any]:
     column, row = tile_index_to_grid(obj.tile)
     world = hex_index_to_world(obj.tile, obj.elevation)
-    kind = "wall" if obj.fid_type == OBJECT_TYPE_WALL else "door" if obj.is_door else "scenery"
+    if obj.fid_type == OBJECT_TYPE_ITEM:
+        kind = "item"
+    elif obj.fid_type == OBJECT_TYPE_WALL:
+        kind = "wall"
+    else:
+        kind = "door" if obj.is_door else "scenery"
     record: dict[str, Any] = {
         "instance_id": instance_id,
         "object_id": obj.object_id,
@@ -120,7 +151,13 @@ def _export_object(
         "hex_row": row,
         "elevation": obj.elevation,
         "rotation": obj.rotation,
+        "frame": obj.frame,
+        "screen_offset": [obj.x, obj.y],
         "world": [world[0], world[1], world[2]],
+        "light": {
+            "distance": obj.light_distance,
+            "intensity": obj.light_intensity,
+        },
         "flags": {
             "raw": obj.flags_u32,
             "hidden": obj.hidden,
@@ -138,18 +175,37 @@ def _export_object(
             "jammed": bool(door_flags & 0x04000000),
         }
     if art_resolver is not None:
-        art = art_resolver(obj.fid)
-        record["art"] = {
-            "type": art.object_type_name,
-            "list_index": art.list_index,
-            "file_name": art.file_name,
-            "path": art.path,
-        }
-        if art_color_resolver is not None:
-            record["art"]["opaque_average_rgb"] = list(art_color_resolver(obj.fid))
-        if art_metadata_resolver is not None:
-            record["art"]["frame"] = art_metadata_resolver(obj.fid)
+        record["art"] = _export_art_reference(
+            obj.fid,
+            art_resolver=art_resolver,
+            art_color_resolver=art_color_resolver,
+            art_metadata_resolver=art_metadata_resolver,
+        )
     return record
+
+
+def _export_art_reference(
+    fid: int,
+    *,
+    art_resolver: Callable[[int], ArtReference],
+    art_color_resolver: Callable[[int], tuple[int, int, int]] | None,
+    art_metadata_resolver: Callable[[int], dict[str, Any]] | None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    art = art_resolver(fid)
+    result: dict[str, Any] = {
+        "type": art.object_type_name,
+        "list_index": art.list_index,
+        "file_name": art.file_name,
+        "path": art.path,
+    }
+    if extra is not None:
+        result.update(extra)
+    if art_color_resolver is not None:
+        result["opaque_average_rgb"] = list(art_color_resolver(fid))
+    if art_metadata_resolver is not None:
+        result["frame"] = art_metadata_resolver(fid)
+    return result
 
 
 def _export_blocking_hexes(

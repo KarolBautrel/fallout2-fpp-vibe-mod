@@ -1,0 +1,31 @@
+# Python
+.venv/
+.tmp/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+
+# Builds and generated evidence
+build/
+dist/
+artifacts/*
+!artifacts/.gitkeep
+
+# Game and engine data — never commit proprietary files
+game-data/
+engine/fallout2-ce/
+*.dat
+*.sav
+*.frm
+*.map
+
+# Optional Godot prototype
+.godot/
+
+# Editor / OS
+.vs/
+.vscode/
+Thumbs.db
+.DS_Store
+

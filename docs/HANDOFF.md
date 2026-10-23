@@ -3,6 +3,32 @@
 Stan zapisany 23 października 2026. Projekt można wznowić od razu na branchu
 `prototype/iso-fpp`.
 
+## Jak wrócić do projektu w kolejnej sesji
+
+Najlepiej uruchomić Codexa bezpośrednio w katalogu:
+
+```text
+C:\Users\karol\AppData\Local\Temp\vibe-modding\repos\fallout2-perspective-remix
+```
+
+Jeżeli nowa sesja zostanie otwarta gdzie indziej, należy podać powyższą ścieżkę
+i poprosić o kontynuację projektu `fallout2-fpp-vibe-mod` z pliku
+`docs/HANDOFF.md` oraz brancha `prototype/iso-fpp`.
+
+Przykładowy tekst na rozpoczęcie kolejnej sesji:
+
+```text
+Wracamy do fallout2-fpp-vibe-mod. Repo jest w
+C:\Users\karol\AppData\Local\Temp\vibe-modding\repos\fallout2-perspective-remix.
+Przeczytaj docs/HANDOFF.md i kontynuuj z brancha prototype/iso-fpp.
+```
+
+Uwaga: repo znajduje się obecnie pod `AppData\Local\Temp`. Kod jest bezpieczny
+na GitHubie, ale lokalne `.venv` i ignorowane artefakty mogą zostać usunięte
+przez czyszczenie plików tymczasowych. Przy kolejnym wznowieniu warto przenieść
+lub sklonować repo do stałego katalogu, np.
+`C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod`.
+
 ## Lokalizacja i Git
 
 - katalog roboczy: `C:\Users\karol\AppData\Local\Temp\vibe-modding\repos\fallout2-perspective-remix`;

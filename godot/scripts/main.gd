@@ -6,16 +6,21 @@ const PlayerController = preload("res://scripts/fallout_player_controller.gd")
 const SCENE_PATH := "res://../artifacts/artemple.scene-v1.json"
 const EVIDENCE_PATH := "res://../artifacts/godot-iso-fpp-contract.json"
 const MOVEMENT_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-movement-runtime.json"
+const BLOCKING_RUNTIME_EVIDENCE_PATH := "res://../artifacts/godot-blocking-runtime.json"
 const FALLOUT2_CE_COMMIT := "e97087b9582f37075db347a89898887320753f8b"
 
 const FLOOR_CELL_COUNT := 100 * 100
 const FLOOR_THICKNESS := 0.08
+const BLOCKING_COLLIDER_HEIGHT := 2.4
+const BLOCKING_COLLIDER_RADIUS := 0.42
 const CAMERA_ISO := "ISO"
 const CAMERA_FPP := "FPP"
 
 var scene_data: Dictionary
 var active_camera_mode := CAMERA_FPP
 var floor_instances: MultiMeshInstance3D
+var debug_object_counts := {"wall": 0, "door": 0, "scenery": 0}
+var blocking_collision_count := 0
 var player
 var iso_camera: Camera3D
 var fpp_camera: Camera3D
@@ -32,6 +37,8 @@ func _ready() -> void:
 	_create_environment()
 	_create_floor_grid()
 	_create_ground_collision()
+	_create_map_object_debug_geometry()
+	_create_map_blocking_collisions()
 	_create_player()
 	_create_cameras()
 	_create_hud()
@@ -40,7 +47,9 @@ func _ready() -> void:
 	_run_contract_checks()
 	_set_camera_mode(_requested_start_camera())
 	_write_evidence()
-	if _has_user_argument("--movement-probe"):
+	if _has_user_argument("--blocking-probe"):
+		_run_blocking_collision_probe()
+	elif _has_user_argument("--movement-probe"):
 		_run_runtime_movement_probe()
 
 
@@ -150,6 +159,96 @@ func _create_ground_collision() -> void:
 	add_child(ground)
 
 
+func _create_map_object_debug_geometry() -> void:
+	var object_section: Dictionary = scene_data.get("objects", {})
+	var records: Array = object_section.get("records", [])
+	var walls: Array[Dictionary] = []
+	var doors: Array[Dictionary] = []
+	var scenery: Array[Dictionary] = []
+	for value in records:
+		var record: Dictionary = value
+		match String(record.get("kind", "")):
+			"wall":
+				walls.append(record)
+			"door":
+				doors.append(record)
+			"scenery":
+				scenery.append(record)
+
+	debug_object_counts["wall"] = walls.size()
+	debug_object_counts["door"] = doors.size()
+	debug_object_counts["scenery"] = scenery.size()
+	_create_object_instances("DebugWalls", walls, Vector3(0.9, 2.2, 0.14), Color("6d8ca8"))
+	_create_object_instances("DebugDoors", doors, Vector3(0.9, 2.1, 0.18), Color("d18152"))
+	_create_object_instances(
+		"DebugScenery",
+		scenery,
+		Vector3(0.48, 1.1, 0.48),
+		Color("638a68")
+	)
+
+
+func _create_object_instances(
+	node_name: String,
+	records: Array[Dictionary],
+	size: Vector3,
+	color: Color
+) -> void:
+	if records.is_empty():
+		return
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3.ONE
+	mesh.material = material
+
+	var multi_mesh := MultiMesh.new()
+	multi_mesh.transform_format = MultiMesh.TRANSFORM_3D
+	multi_mesh.use_colors = true
+	multi_mesh.mesh = mesh
+	multi_mesh.instance_count = records.size()
+	for index in records.size():
+		var record := records[index]
+		var tile := int(record["hex_index"])
+		var elevation := int(record["elevation"])
+		var rotation := int(record["rotation"])
+		var direction := Coordinates.direction_to_world(tile, rotation)
+		var yaw := atan2(-direction.x, -direction.z)
+		var basis := Basis(Vector3.UP, yaw).scaled(size)
+		var position := Coordinates.hex_index_to_world(tile, elevation)
+		position.y += size.y * 0.5
+		multi_mesh.set_instance_transform(index, Transform3D(basis, position))
+		multi_mesh.set_instance_color(index, color)
+
+	var instances := MultiMeshInstance3D.new()
+	instances.name = node_name
+	instances.multimesh = multi_mesh
+	add_child(instances)
+
+
+func _create_map_blocking_collisions() -> void:
+	var collision_section: Dictionary = scene_data.get("collision", {})
+	var records: Array = collision_section.get("blocking_hexes", [])
+	var body := StaticBody3D.new()
+	body.name = "FalloutBlockingHexes"
+	var shared_shape := CylinderShape3D.new()
+	shared_shape.radius = BLOCKING_COLLIDER_RADIUS
+	shared_shape.height = BLOCKING_COLLIDER_HEIGHT
+	for value in records:
+		var record: Dictionary = value
+		var collision := CollisionShape3D.new()
+		collision.shape = shared_shape
+		collision.position = Coordinates.hex_index_to_world(
+			int(record["hex_index"]),
+			int(record["elevation"])
+		)
+		collision.position.y += BLOCKING_COLLIDER_HEIGHT * 0.5
+		collision.set_meta("object_ids", record.get("object_ids", []))
+		body.add_child(collision)
+	add_child(body)
+	blocking_collision_count = records.size()
+
+
 func _debug_floor_color(floor_id: int) -> Color:
 	if floor_id == 0:
 		return Color("20282a")
@@ -191,7 +290,7 @@ func _create_hud() -> void:
 
 	var panel := ColorRect.new()
 	panel.position = Vector2(16.0, 16.0)
-	panel.size = Vector2(980.0, 100.0)
+	panel.size = Vector2(980.0, 124.0)
 	panel.color = Color(0.02, 0.03, 0.04, 0.82)
 	canvas.add_child(panel)
 
@@ -292,6 +391,7 @@ func _update_hud() -> void:
 	state_label.text = (
 		"%s  |  %s  |  %d FPS  |  speed %.2f\n"
 		+ "hex %d  grid (%d, %d)  elevation %d  direction %d\n"
+		+ "walls %d  doors %d  scenery %d  blocking hexes %d\n"
 		+ "Mouse: look   WASD: move/strafe   SHIFT: sprint   TAB: ISO/FPP   ESC: mouse"
 	) % [
 		state["map_name"],
@@ -303,11 +403,38 @@ func _update_hud() -> void:
 		state["hex_row"],
 		state["elevation"],
 		state["rotation"],
+		debug_object_counts["wall"],
+		debug_object_counts["door"],
+		debug_object_counts["scenery"],
+		blocking_collision_count,
 	]
 
 
 func _run_contract_checks() -> void:
 	assert(floor_instances.multimesh.instance_count == FLOOR_CELL_COUNT)
+	var object_section: Dictionary = scene_data["objects"]
+	var object_records: Array = object_section["records"]
+	assert(object_records.size() == int(object_section["exported_count"]))
+	assert(int(object_section["wall_count"]) >= 2)
+	assert(debug_object_counts["wall"] == int(object_section["wall_count"]))
+	assert(debug_object_counts["door"] == int(object_section["door_count"]))
+	assert(debug_object_counts["scenery"] == int(object_section["scenery_count"]))
+	var blocking_records: Array = scene_data["collision"]["blocking_hexes"]
+	assert(blocking_collision_count == blocking_records.size())
+	assert(blocking_collision_count >= 2)
+	for index in mini(2, object_records.size()):
+		var record: Dictionary = object_records[index]
+		var expected_world := Coordinates.hex_index_to_world(
+			int(record["hex_index"]),
+			int(record["elevation"])
+		)
+		var exported_world: Array = record["world"]
+		var actual_world := Vector3(
+			float(exported_world[0]),
+			float(exported_world[1]),
+			float(exported_world[2])
+		)
+		assert(expected_world.distance_to(actual_world) < 0.00001)
 	assert(Coordinates.tile_index_to_grid(18492) == Vector2i(107, 92))
 	assert(int(player.logical_state["hex_index"]) == 18492)
 
@@ -435,15 +562,94 @@ func _run_runtime_movement_probe() -> void:
 	get_tree().quit(0)
 
 
+func _run_blocking_collision_probe() -> void:
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var blocking_records: Array = scene_data["collision"]["blocking_hexes"]
+	var blocked := {}
+	for value in blocking_records:
+		var record: Dictionary = value
+		blocked[_blocking_key(int(record["elevation"]), int(record["hex_index"]))] = true
+
+	var target_record: Dictionary = {}
+	var start_hex := -1
+	for value in scene_data["objects"]["records"]:
+		var candidate: Dictionary = value
+		if String(candidate["kind"]) != "wall" or not bool(candidate["blocks_movement"]):
+			continue
+		var candidate_tile := int(candidate["hex_index"])
+		var candidate_elevation := int(candidate["elevation"])
+		for rotation in 6:
+			var neighbor := Coordinates.tile_in_direction(candidate_tile, rotation)
+			if neighbor == candidate_tile:
+				continue
+			if not blocked.has(_blocking_key(candidate_elevation, neighbor)):
+				target_record = candidate
+				start_hex = neighbor
+				break
+		if not target_record.is_empty():
+			break
+
+	assert(not target_record.is_empty(), "No accessible blocking wall found for probe")
+	var elevation := int(target_record["elevation"])
+	var target_hex := int(target_record["hex_index"])
+	var start_world := Coordinates.hex_index_to_world(start_hex, elevation)
+	var target_world := Coordinates.hex_index_to_world(target_hex, elevation)
+	var direction := (target_world - start_world).normalized()
+	player.global_position = start_world
+	player.velocity = Vector3.ZERO
+	player.set_view_angles(atan2(-direction.x, -direction.z), 0.0)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+
+	Input.action_press("move_forward")
+	for _frame in 90:
+		await get_tree().physics_frame
+	Input.action_release("move_forward")
+
+	var end_hex := Coordinates.world_to_nearest_hex(player.global_position)
+	var distance_to_blocker: float = player.global_position.distance_to(target_world)
+	assert(end_hex != target_hex, "Player entered a Fallout-blocking wall hex")
+	assert(distance_to_blocker > 0.68, "Player capsule penetrated blocking collision")
+	var evidence := {
+		"schema": "fo2remix.godot-blocking-runtime-v1",
+		"map": scene_data["map"]["name"],
+		"object_id": int(target_record["object_id"]),
+		"start_hex": start_hex,
+		"blocking_hex": target_hex,
+		"end_hex": end_hex,
+		"distance_to_blocker": distance_to_blocker,
+		"physics_frames": 90,
+		"passed": true,
+	}
+	var path := ProjectSettings.globalize_path(BLOCKING_RUNTIME_EVIDENCE_PATH)
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	assert(file != null, "Could not write blocking runtime evidence")
+	file.store_string(JSON.stringify(evidence, "  "))
+	print("FO2REMIX_BLOCKING_RUNTIME %s" % JSON.stringify(evidence))
+	get_tree().quit(0)
+
+
+func _blocking_key(elevation: int, tile: int) -> String:
+	return "%d:%d" % [elevation, tile]
+
+
 func _write_evidence() -> void:
 	var state: Dictionary = player.logical_state
 	var round_trip_count := 11
 	var evidence := {
-		"schema": "fo2remix.godot-movement-contract-v2",
+		"schema": "fo2remix.godot-scene-contract-v3",
 		"fallout2_ce_commit": FALLOUT2_CE_COMMIT,
 		"scene_schema": scene_data["schema"],
 		"map": state["map_name"],
 		"floor_instances": floor_instances.multimesh.instance_count,
+		"map_objects": {
+			"declared": int(scene_data["objects"]["declared_count"]),
+			"walls": debug_object_counts["wall"],
+			"doors": debug_object_counts["door"],
+			"scenery": debug_object_counts["scenery"],
+			"blocking_hexes": blocking_collision_count,
+		},
 		"player_state": state,
 		"player_world": _vector_to_array(player.global_position),
 		"fpp_camera_origin": _vector_to_array(fpp_camera.global_position),

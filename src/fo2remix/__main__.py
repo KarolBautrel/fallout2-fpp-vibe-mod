@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .dat_archive import DatArchive
 from .map_format import read_map_header
+from .proto_format import PrototypeCatalog
 from .scene_export import export_scene_v1
 
 
@@ -57,16 +58,21 @@ def _extract_map(args: argparse.Namespace) -> int:
 def _scene_export(args: argparse.Namespace) -> int:
     archive = DatArchive(args.archive)
     entry = archive.find(args.entry)
+    prototypes = PrototypeCatalog(archive)
     scene = export_scene_v1(
         archive.read(entry),
         source={"archive": str(Path(args.archive).resolve()), "entry": entry.path},
+        prototype_resolver=prototypes.resolve,
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(scene, indent=2), encoding="utf-8")
     print(
         f"wrote {scene['map']['name']} with "
-        f"{len(scene['tile_grid']['layers'])} tile layer(s) to {output}"
+        f"{len(scene['tile_grid']['layers'])} tile layer(s), "
+        f"{scene['objects']['wall_count']} wall(s), "
+        f"{scene['objects']['door_count']} door(s), and "
+        f"{len(scene['collision']['blocking_hexes'])} blocking hex(es) to {output}"
     )
     return 0
 

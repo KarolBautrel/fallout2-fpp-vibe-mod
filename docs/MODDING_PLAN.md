@@ -34,14 +34,15 @@ Pierwszy pionowy wycinek powstanie jako parser/eksporter plus niezależny render
 - [x] zapisać znaczenie współrzędnych kafli/heksów i poziomów;
 - [x] wybrać małą mapę testową (`maps\artemple.map`);
 - [x] stworzyć pierwszy schemat `scene-v1.json` dla podłóg i dachów;
-- [ ] rozszerzyć schemat o obiekty, prototypy i kolizje.
+- [x] rozszerzyć schemat o obiekty, prototypy i kolizje.
 
 ### M2 — geometria debugowa
 
-- podłoga i siatka heksowa;
-- ściany jako proste bryły;
-- drzwi i obiekty jako kolorowe placeholdery;
-- test zgodności kilku znanych pozycji.
+- [x] podłoga i siatka heksowa;
+- [x] ściany jako proste bryły;
+- [x] drzwi i obiekty jako kolorowe placeholdery;
+- [x] test zgodności kilku znanych pozycji;
+- [x] runtime test, że collider ściany nie wpuszcza gracza na blokowany heks.
 
 ### M3 — kamery i sterowanie
 

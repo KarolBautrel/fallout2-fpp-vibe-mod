@@ -3,6 +3,10 @@
 The project reads `../artifacts/artemple.scene-v1.json` at runtime. It does not
 contain or download original Fallout 2 assets.
 
+The debug renderer currently creates neutral geometry for exported walls and
+scenery plus one physical collider for every Fallout-blocking hex. It does not
+attempt to reconstruct proprietary prerendered artwork.
+
 Initialize the pinned movement package after cloning the repository:
 
 ```powershell

@@ -22,7 +22,7 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
 - eksport `fo2remix.scene-v1` do JSON;
 - eksport `maps\artemple.map` do ignorowanego
   `artifacts\artemple.scene-v1.json`;
-- 16 testów i Ruff;
+- 20 testów i Ruff;
 - zainstalowany i wykrywany toolchain MSVC/CMake;
 - sklonowany oraz przypięty niezmieniony `fallout2-ce`;
 - udany build Release x64;
@@ -41,10 +41,18 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
 - osobny adapter Fallouta zachowany w
   `godot/scripts/fallout_player_controller.gd`;
 - odwrotne mapowanie ciągłej pozycji świata do najbliższego heksa Fallouta.
+- parser skryptów i pełnej sekcji obiektów MAP, w tym rekurencyjnych
+  ekwipunków oraz typów instancji zależnych od `.pro`;
+- resolver prototypów zgodny z 1-based listami `proto/<type>/<type>.lst`;
+- `scene-v1` rozszerzone o ściany, scenerię, drzwi, flagi i blokowane heksy;
+- debugowa geometria Godot oraz 419 colliderów dla blokad `ARTEMPLE.MAP`;
+- runtime probe potwierdzający, że ściana ID `164` blokuje heks `15284`.
 
 Na prawdziwym `master.dat` znaleziono 23 140 wpisów i 155 map. Dla
 `ARTEMPLE.MAP` eksport zawiera spawn na heksie `18492`, kolumnę `107`,
-wiersz `92`, elevation `0` i jedną warstwę 100 × 100.
+wiersz `92`, elevation `0`, jedną warstwę 100 × 100, 567 obiektów, 45 ścian,
+397 rekordów scenerii i 419 blokowanych heksów. Mapa nie ma drzwi. Format
+drzwi potwierdzono dodatkowo na 24 rekordach z `KLAMALL.MAP`.
 
 ## fallout2-ce jako oracle
 
@@ -89,6 +97,9 @@ logiczny zachowuje indeks heksa; kamery tylko go obserwują.
 - `godot-iso-fpp-contract.json`;
 - `godot-movement-runtime.json` — rzeczywisty test strafe `D` przez 30
   klatek fizyki;
+- `godot-blocking-runtime.json` — rzeczywisty test kolizji ze ścianą;
+- `artemple.scene-v1.objects.json` i `klamall.scene-v1.objects.json` —
+  dowody pełnego odczytu obiektów z danych użytkownika;
 - `godot-preview00000002.png` — widok ISO;
 - `godot-fpp-preview00000002.png` — widok FPP;
 - `godot-headless-contract-2026-10-23.log`.
@@ -98,7 +109,7 @@ Gitem. Instalacja Steam jest traktowana wyłącznie jako źródło do odczytu.
 
 ## Następny konkretny etap
 
-Rozszerzyć parser i `scene-v1` o nagłówki obiektów mapy, co najmniej ściany,
-drzwi i flagi blokowania. Najpierw należy potwierdzić format na dwóch rekordach
-w `fallout2-ce/src/object.*`, `map.*` i `proto.*`. Dopiero wtedy debugowy
-renderer może dostać kolizje oraz pierwszą wspólną interakcję ISO/FPP.
+Dodać jedną wspólną interakcję ISO/FPP z blokującym obiektem scenerii na
+`ARTEMPLE.MAP`, zachowując ten sam `object_id`, stan i wynik w obu kamerach.
+Drzwi wymagają późniejszej jawnej zmiany mapy pionowego wycinka, ponieważ
+`ARTEMPLE.MAP` nie zawiera rekordów drzwi.

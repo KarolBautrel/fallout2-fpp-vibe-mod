@@ -69,5 +69,5 @@ Pierwszy parser nie będzie próbował odczytywać wszystkich obiektów. Zacznie
 2. Rozpoznać listy nazw kafelków i format `.frm`, aby powiązać ID z grafiką.
 3. Wczytać `artemple.scene-v1.json` do minimalnego projektu Godot.
 4. Narysować podłogę zastępczymi materiałami i zaznaczyć startowy heks.
-5. Dodać przełączanie kamery ISO/TPP nad tą samą sceną.
+5. Dodać przełączanie kamery ISO/FPP nad tą samą sceną.
 

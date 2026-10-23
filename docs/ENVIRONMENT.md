@@ -48,7 +48,7 @@ Opcjonalny, szerszy pakiet Universal Modder można dodać osobno:
 .\scripts\install-optional-universal-modder.ps1
 ```
 
-Projektowy skill w `.codex/skills/fallout2-perspective-remix` nie wymaga globalnej instalacji i pozostaje wersjonowany razem z projektem.
+Projektowy skill w `.codex/skills/fallout2-fpp-vibe-mod` nie wymaga globalnej instalacji i pozostaje wersjonowany razem z projektem.
 
 ## Dlaczego nie instalujemy teraz Ghidry i Blendera
 

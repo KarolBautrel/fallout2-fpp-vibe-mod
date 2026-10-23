@@ -1,14 +1,14 @@
 # Punkt wznowienia
 
 Stan zapisany 23 października 2026. Projekt można wznowić od razu na branchu
-`prototype/iso-tpp`.
+`prototype/iso-fpp`.
 
 ## Lokalizacja i Git
 
 - katalog roboczy: `C:\Users\karol\AppData\Local\Temp\vibe-modding\repos\fallout2-perspective-remix`;
 - docelowa lokalizacja użytkownika: `C:\Users\karol\Desktop\vibe-modding`;
 - sandbox nie dostał prawa zapisu do Pulpitu, dlatego projekt pozostał w katalogu tymczasowym;
-- aktywny branch: `prototype/iso-tpp`;
+- aktywny branch: `prototype/iso-fpp`;
 - ostatni ukończony commit przed tym handoffem: `8f92ff6`.
 
 ## Co działa
@@ -19,7 +19,7 @@ Stan zapisany 23 października 2026. Projekt można wznowić od razu na branchu
 - parser nagłówka MAP, zmiennych i warstw podłoga/dach;
 - eksport `fo2remix.scene-v1` do JSON;
 - 16 testów oraz Ruff;
-- projektowy skill `.codex/skills/fallout2-perspective-remix`.
+- projektowy skill `.codex/skills/fallout2-fpp-vibe-mod`.
 
 Na prawdziwym `master.dat` znaleziono 23 140 wpisów i 155 map. Mapa
 `maps\artemple.map` została rozpakowana do ignorowanego `artifacts/` i
@@ -81,7 +81,7 @@ lokalizacji zamiast ścieżki z `AppData\Local\Temp`.
 3. Stworzyć minimalny projekt Godot czytający `artemple.scene-v1.json`.
 4. Wyrenderować siatkę 100 × 100 materiałami debugowymi.
 5. Umieścić marker gracza na heksie `18492`.
-6. Dodać kamery ISO i TPP korzystające z jednego stanu pozycji.
+6. Dodać kamery ISO i FPP korzystające z jednego stanu pozycji; FPP ma być widokiem z oczu postaci.
 7. Następnie rozpoznać obiekty, kolizje, prototypy i format FRM.
 
 Nie kopiować do Git oryginalnych `.dat`, `.map`, `.frm`, dźwięków ani filmów.

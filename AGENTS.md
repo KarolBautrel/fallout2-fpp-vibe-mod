@@ -2,7 +2,7 @@
 
 ## Cel
 
-Buduj pionowy wycinek Fallouta 2 z przełączaniem ISO/TPP. Nie rozszerzaj zakresu na pełny remake, FPP ani nowe assety, dopóki jedna lokacja nie przejdzie testów akceptacyjnych.
+Buduj pionowy wycinek Fallouta 2 z przełączaniem ISO/FPP. Kamera FPP znajduje się na wysokości oczu postaci; nie jest kamerą za plecami. Nie rozszerzaj zakresu na pełny remake ani nowe assety, dopóki jedna lokacja nie przejdzie testów akceptacyjnych.
 
 ## Niezmienne zasady
 
@@ -19,7 +19,7 @@ Buduj pionowy wycinek Fallouta 2 z przełączaniem ISO/TPP. Nie rozszerzaj zakre
 2. Zidentyfikuj minimalny zestaw danych mapy: heksy, poziom, ściany, drzwi, obiekty i blokady ruchu.
 3. Wyeksportuj jedną lokację do jawnego, wersjonowanego schematu pośredniego.
 4. Wyrenderuj ją najpierw jako debugową geometrię 3D.
-5. Dodaj jedną postać i przełączanie ISO/TPP.
+5. Dodaj jedną postać i przełączanie ISO/FPP.
 6. Dodaj jedną interakcję i test zgodności pozycji.
 
 ## Weryfikacja

@@ -14,7 +14,7 @@ Pierwszy pionowy wycinek powstanie jako parser/eksporter plus niezależny render
 
 ### Przepływ danych
 
-`instalacja Fallout 2 (read-only) -> parser -> scene-v1.json -> Godot -> ISO/TPP`
+`instalacja Fallout 2 (read-only) -> parser -> scene-v1.json -> Godot -> ISO/FPP`
 
 `fallout2-ce` pełni rolę dokumentacji wykonywalnej i późniejszego źródła symulacji.
 
@@ -46,19 +46,19 @@ Pierwszy pionowy wycinek powstanie jako parser/eksporter plus niezależny render
 ### M3 — kamery i sterowanie
 
 - kamera izometryczna;
-- kamera TPP za postacią;
+- kamera FPP na wysokości oczu postaci, bez kamery za plecami;
 - wspólny stan pozycji i zaznaczenia;
 - przełączanie bez teleportacji i zmiany aktywnego heksa.
 
 ### M4 — interakcja
 
 - jedno działające drzwi lub obiekt;
-- ten sam rezultat w ISO i TPP;
+- ten sam rezultat w ISO i FPP;
 - zapis logu wejścia, pozycji i wyniku.
 
 ## Kryterium decyzji
 
 - **Integracja:** geometria i sterowanie są wiarygodne — podłączamy stan `fallout2-ce` lub przenosimy renderer do forka.
 - **Hybryda:** dane logiczne są dobre, ale obraz 3D wymaga ręcznych poprawek — dodajemy per-map metadata.
-- **Pivot:** dane mapy nie wystarczają — robimy tryb TPP tylko dla ręcznie odtworzonych lokacji.
+- **Pivot:** dane mapy nie wystarczają — robimy tryb FPP tylko dla ręcznie odtworzonych lokacji.
 

@@ -10,7 +10,7 @@ Generate simple primitives:
 - wall: extruded box along the logical edge;
 - door/scenery: colored placeholder with object ID;
 - critter: billboard initially, capsule for collision/debug;
-- player: distinct placeholder and visible forward vector.
+- player: distinct ISO placeholder and visible forward vector; hide the head/body geometry that would obstruct the FPP camera.
 
 Do not manufacture detailed geometry from the prerendered background until the logical layout passes validation.
 
@@ -19,8 +19,10 @@ Do not manufacture detailed geometry from the prerendered background until the l
 Maintain one authoritative player transform. Cameras observe it; they never each own a separate copy.
 
 - ISO: orthographic, configurable pitch/yaw/zoom, mouse selection through a ground/hex query.
-- TPP: perspective, spring arm or collision-aware boom, yaw/pitch independent of player heading until movement policy is chosen.
+- FPP: perspective camera located at character eye height, with yaw/pitch look and no trailing boom or over-the-shoulder offset.
 - Switch: changes active camera and input map only; it must not rewrite player position, selected object or current elevation.
+
+In FPP, cast interaction rays from the center of the camera. Keep camera height and collision radius as explicit prototype constants until critter dimensions are decoded from game data.
 
 Keep input actions semantic (`move`, `interact`, `toggle_camera`) so later integration can translate them to `fallout2-ce` commands.
 

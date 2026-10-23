@@ -17,10 +17,11 @@ Record:
 1. Load the selected map without missing required records.
 2. Known logical points appear at the expected relative positions.
 3. Walls marked blocking prevent traversal in the debug scene.
-4. ISO → TPP → ISO keeps player hex, elevation and selection unchanged.
-5. A movement command reaches the same target hex in both views.
-6. One door/object interaction targets the same object ID in both views.
-7. Running without access to the user's Fallout 2 data fails clearly and never downloads substitute assets.
+4. ISO → FPP → ISO keeps player hex, elevation and selection unchanged.
+5. The FPP camera origin matches the player's position plus the configured eye height and has no third-person offset.
+6. A movement command reaches the same target hex in both views.
+7. One door/object interaction targets the same object ID in both views.
+8. Running without access to the user's Fallout 2 data fails clearly and never downloads substitute assets.
 
 ## Oracle strategy
 

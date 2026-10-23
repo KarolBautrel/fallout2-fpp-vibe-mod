@@ -1,6 +1,6 @@
-# Fallout 2 Perspective Remix
+# Fallout 2 FPP Vibe Mod
 
-Eksperymentalny projekt dodający do Fallouta 2 przełączanie między klasycznym widokiem izometrycznym a kamerą TPP, z możliwością późniejszego dodania FPP.
+Eksperymentalny projekt dodający do Fallouta 2 przełączanie między klasycznym widokiem izometrycznym a kamerą FPP — bezpośrednio z oczu postaci.
 
 ## Pierwszy cel
 
@@ -8,7 +8,7 @@ Jedna mała lokacja, w której:
 
 - pozycje i kolizje pochodzą z danych Fallouta 2;
 - postać porusza się po oryginalnej siatce heksowej;
-- kamera przełącza się między ISO i TPP bez utraty stanu;
+- kamera przełącza się między ISO i FPP bez utraty stanu;
 - działa co najmniej jedna interakcja z drzwiami albo obiektem;
 - dane gry są czytane wyłącznie z legalnej instalacji użytkownika.
 
@@ -23,7 +23,7 @@ To ogranicza ryzyko: najpierw potwierdzamy mapowanie świata, a dopiero potem pr
 
 ## Repozytorium
 
-- aktywny branch: `prototype/iso-tpp`;
+- aktywny branch: `prototype/iso-fpp`;
 - instalacja gry: `C:\Program Files (x86)\Steam\steamapps\common\Fallout 2`;
 - źródła silnika mają trafić do `engine/fallout2-ce` i są ignorowane przez nadrzędne repo;
 - oryginalne assety, pliki `.dat`, rozpakowane mapy i save'y nie mogą trafić do Git.

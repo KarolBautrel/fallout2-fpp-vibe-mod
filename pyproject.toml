@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "fallout2-perspective-remix"
+name = "fallout2-fpp-vibe-mod"
 version = "0.1.0"
-description = "Tools and experiments for an ISO/TPP renderer using a legally owned Fallout 2 installation."
+description = "Tools and experiments for an ISO/FPP renderer using a legally owned Fallout 2 installation."
 requires-python = ">=3.13"
 dependencies = []
 

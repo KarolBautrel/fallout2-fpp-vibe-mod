@@ -1,11 +1,11 @@
 ---
-name: fallout2-perspective-remix
-description: Develop or investigate the Fallout 2 ISO/TPP perspective-remix project, including reading owned game data, tracing fallout2-ce map logic, exporting a neutral scene, building the Godot 3D prototype, and verifying coordinate or behavior parity. Do not use for unrelated Fallout mods.
+name: fallout2-fpp-vibe-mod
+description: Develop or investigate the Fallout 2 ISO/FPP vibe-mod project, including reading owned game data, tracing fallout2-ce map logic, exporting a neutral scene, building the Godot first-person prototype, and verifying coordinate or behavior parity. Do not use for unrelated Fallout mods.
 ---
 
-# Fallout 2 Perspective Remix
+# Fallout 2 FPP Vibe Mod
 
-Preserve Fallout 2's logical world while adding an alternate 3D presentation. Keep the first deliverable to one map, one player, two cameras and one interaction.
+Preserve Fallout 2's logical world while adding a first-person 3D presentation. Keep the first deliverable to one map, one player, ISO/FPP cameras and one interaction. FPP means a camera at the character's eyes, never a trailing third-person camera.
 
 ## Select the relevant path
 
@@ -26,5 +26,5 @@ Read only the references needed by the current task.
 
 ## Definition of done for the vertical slice
 
-The same player state is visible in ISO and TPP, switching cameras does not move the player, movement resolves to the same logical hex, and one door/object interaction gives the same result in both views.
+The same player state is visible in ISO and FPP, switching cameras does not move the player, the FPP camera remains anchored to eye height, movement resolves to the same logical hex, and one door/object interaction gives the same result in both views.
 

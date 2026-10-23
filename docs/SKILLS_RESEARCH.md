@@ -2,7 +2,7 @@
 
 ## Włączone projektowo
 
-Repo zawiera jeden skupiony skill: `.codex/skills/fallout2-perspective-remix/SKILL.md`. Łączy routing do trzech osobnych referencji, dzięki czemu agent nie ładuje naraz instrukcji parsera, renderera i testów.
+Repo zawiera jeden skupiony skill: `.codex/skills/fallout2-fpp-vibe-mod/SKILL.md`. Łączy routing do trzech osobnych referencji, dzięki czemu agent nie ładuje naraz instrukcji parsera, renderera i testów.
 
 ## Sprawdzone skille zewnętrzne
 

@@ -7,7 +7,7 @@ deterministic projection onto Fallout's logical 200 × 200 hex grid.
 
 The dependency-free movement core is published under the MIT license at
 `KarolBautrel/godot-classic-fpp-controller`. This project mounts it as the Git
-submodule `godot/addons/classic_fpp_controller` and pins the tested `v0.1.0`
+submodule `godot/addons/classic_fpp_controller` and pins the tested `v0.2.0`
 commit. It knows nothing about Fallout, hexes, ISO cameras or map data. All
 Fallout-specific state is added by
 `godot/scripts/fallout_player_controller.gd`.
@@ -54,7 +54,11 @@ commands and later integration with `fallout2-ce` use that resolved index.
 - deceleration: 22.0 units per second squared;
 - capsule height: 1.75 units;
 - capsule radius: 0.30 units;
-- eye height: 1.68 units.
+- eye height: 1.68 units;
+- floor snap: 0.25 units;
+- maximum walkable floor angle: 50 degrees;
+- maximum automatic step height: 0.25 units;
+- step search distance: 0.35 units.
 
 These remain explicit prototype constants until critter dimensions and movement
 timings are confirmed against `fallout2-ce`.
@@ -67,3 +71,7 @@ diagonals, camera-independent target movement and coordinate round trips.
 `artifacts/godot-movement-runtime.json` is a real physics probe: it holds
 `D` for 30 physics frames and asserts lateral displacement, negligible
 forward drift, unchanged yaw and an updated logical hex.
+
+`artifacts/classic-fpp-controller-v0.2.0-physics-arena.log` records the
+standalone package checks for a blocking wall, perpendicular corner, uphill
+slope, downhill ground snap and six physical stair steps.

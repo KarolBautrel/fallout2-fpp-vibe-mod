@@ -33,3 +33,5 @@ The reusable movement core comes from the pinned
 [`godot-classic-fpp-controller`](https://github.com/KarolBautrel/godot-classic-fpp-controller)
 submodule in `addons/classic_fpp_controller`. The project-specific
 `scripts/fallout_player_controller.gd` adapter adds logical hex state.
+The pinned `v0.2.0` package also provides configurable floor snapping,
+walkable slopes and automatic step-up for low stairs.

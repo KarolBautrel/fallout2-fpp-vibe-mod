@@ -34,8 +34,10 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
 - pełny kontroler `CharacterBody3D`: WASD, strafe, sprint, mysz, akceleracja,
   hamowanie i kapsuła kolizji;
 - reużywalny rdzeń ruchu opublikowany jako repo MIT
-  `KarolBautrel/godot-classic-fpp-controller`, oznaczony `v0.1.0` i podłączony
+  `KarolBautrel/godot-classic-fpp-controller`, oznaczony `v0.2.0` i podłączony
   jako przypięty submodule w `godot/addons/classic_fpp_controller`;
+- kontroler `v0.2.0` ma automatyczny step-up oraz headless arena test dla
+  ścian, narożnika, pochylni, ground snapu i sześciu fizycznych stopni;
 - osobny adapter Fallouta zachowany w
   `godot/scripts/fallout_player_controller.gd`;
 - odwrotne mapowanie ciągłej pozycji świata do najbliższego heksa Fallouta.

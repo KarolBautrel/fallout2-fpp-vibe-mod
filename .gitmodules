@@ -1,0 +1,3 @@
+[submodule "godot/addons/classic_fpp_controller"]
+	path = godot/addons/classic_fpp_controller
+	url = https://github.com/KarolBautrel/godot-classic-fpp-controller.git

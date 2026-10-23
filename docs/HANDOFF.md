@@ -33,8 +33,11 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
 - kamera FPP na wysokości oczu `1.68`, bez offsetu TPP.
 - pełny kontroler `CharacterBody3D`: WASD, strafe, sprint, mysz, akceleracja,
   hamowanie i kapsuła kolizji;
-- reużywalny rdzeń ruchu wydzielony do
-  `godot/addons/classic_fpp_controller`, z osobnym adapterem Fallouta;
+- reużywalny rdzeń ruchu opublikowany jako repo MIT
+  `KarolBautrel/godot-classic-fpp-controller`, oznaczony `v0.1.0` i podłączony
+  jako przypięty submodule w `godot/addons/classic_fpp_controller`;
+- osobny adapter Fallouta zachowany w
+  `godot/scripts/fallout_player_controller.gd`;
 - odwrotne mapowanie ciągłej pozycji świata do najbliższego heksa Fallouta.
 
 Na prawdziwym `master.dat` znaleziono 23 140 wpisów i 155 map. Dla

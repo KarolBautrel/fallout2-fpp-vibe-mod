@@ -5,14 +5,16 @@ deterministic projection onto Fallout's logical 200 × 200 hex grid.
 
 ## Reuse boundary
 
-The dependency-free movement core lives in
-`godot/addons/classic_fpp_controller/first_person_controller.gd`. It knows
-nothing about Fallout, hexes, ISO cameras or map data. All Fallout-specific
-state is added by `godot/scripts/fallout_player_controller.gd`.
+The dependency-free movement core is published under the MIT license at
+`KarolBautrel/godot-classic-fpp-controller`. This project mounts it as the Git
+submodule `godot/addons/classic_fpp_controller` and pins the tested `v0.1.0`
+commit. It knows nothing about Fallout, hexes, ISO cameras or map data. All
+Fallout-specific state is added by
+`godot/scripts/fallout_player_controller.gd`.
 
-Keep the addon internal until its API is stable and a second project consumes
-it. At that point it can move to a separate versioned repository after an
-explicit license review; the game project should then pin an exact release.
+Develop generic movement in the package repository, test and tag a release,
+then update this project's submodule pointer. Do not add Fallout-specific
+behavior to the package merely to avoid writing an adapter here.
 
 ## Controls
 

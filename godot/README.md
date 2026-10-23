@@ -3,6 +3,12 @@
 The project reads `../artifacts/artemple.scene-v1.json` at runtime. It does not
 contain or download original Fallout 2 assets.
 
+Initialize the pinned movement package after cloning the repository:
+
+```powershell
+git submodule update --init --recursive
+```
+
 Run it with the project Godot executable:
 
 ```powershell
@@ -23,6 +29,7 @@ Both cameras observe the same `CharacterBody3D`. The FPP camera origin is exactl
 the player position plus the explicit `1.68` world-unit eye height and has no
 trailing or over-the-shoulder offset.
 
-The reusable movement core is isolated in `addons/classic_fpp_controller`.
-`scripts/fallout_player_controller.gd` is the project-specific adapter that
-adds logical hex state.
+The reusable movement core comes from the pinned
+[`godot-classic-fpp-controller`](https://github.com/KarolBautrel/godot-classic-fpp-controller)
+submodule in `addons/classic_fpp_controller`. The project-specific
+`scripts/fallout_player_controller.gd` adapter adds logical hex state.

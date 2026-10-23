@@ -1,6 +1,8 @@
 shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
 
+uniform vec4 material_tint : source_color = vec4(1.0);
+
 varying vec3 world_position;
 varying vec3 world_tangent;
 varying vec4 vertex_albedo;
@@ -18,7 +20,7 @@ void vertex() {
 	world_tangent = length(tangent) > 0.001
 		? normalize(tangent)
 		: vec3(1.0, 0.0, 0.0);
-	vertex_albedo = COLOR;
+	vertex_albedo = COLOR * material_tint;
 }
 
 
@@ -37,14 +39,14 @@ void fragment() {
 	float edge_x = min(cell.x, 1.0 - cell.x) * block_width;
 	float edge_y = min(cell.y, 1.0 - cell.y) * block_height;
 	float closest_edge = min(edge_x, edge_y);
-	float antialias_width = max(fwidth(closest_edge) * 1.25, 0.002);
+	float antialias_width = max(fwidth(closest_edge) * 0.55, 0.001);
 	float stone_mask = smoothstep(
 		mortar_size - antialias_width,
 		mortar_size + antialias_width,
 		closest_edge
 	);
 	vec2 block_id = vec2(floor(shifted_horizontal / block_width), row);
-	float variation = 0.86 + 0.14 * hash21(block_id);
+	float variation = 0.82 + 0.18 * hash21(block_id);
 	vec3 stone = vertex_albedo.rgb * variation;
 	vec3 mortar = vertex_albedo.rgb * 0.58 + vec3(0.012, 0.009, 0.006);
 

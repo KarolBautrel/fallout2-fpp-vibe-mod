@@ -5,6 +5,11 @@ varying vec3 world_position;
 varying vec4 vertex_albedo;
 
 
+float hash31(vec3 value) {
+	return fract(sin(dot(value, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+}
+
+
 void vertex() {
 	world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	vertex_albedo = COLOR;
@@ -12,11 +17,12 @@ void vertex() {
 
 
 void fragment() {
-	float broad_rock = sin(world_position.x * 1.31 + world_position.z * 0.77);
-	broad_rock += sin(world_position.z * 1.79 - world_position.y * 1.13) * 0.55;
-	float fine_rock = sin((world_position.x - world_position.z) * 5.7) * 0.08;
-	float strata = sin(world_position.y * 7.4 + broad_rock) * 0.045;
-	float variation = 0.83 + broad_rock * 0.055 + fine_rock + strata;
+	vec3 coarse_cell = floor(world_position * vec3(2.4, 3.2, 2.4));
+	vec3 fine_cell = floor(world_position * vec3(8.0, 10.0, 8.0));
+	float coarse = hash31(coarse_cell);
+	float grain = hash31(fine_cell);
+	float strata = step(0.82, fract(world_position.y * 2.7 + coarse * 0.41));
+	float variation = 0.72 + coarse * 0.20 + grain * 0.10 - strata * 0.08;
 
 	ALBEDO = vertex_albedo.rgb * variation;
 	ROUGHNESS = 0.98;

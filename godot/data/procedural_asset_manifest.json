@@ -1,0 +1,56 @@
+{
+  "schema": "fo2remix.procedural-assets-v1",
+  "engine": "Godot 4.7",
+  "units": "1.0 world unit per adjacent Fallout hex",
+  "provenance": "Project-authored procedural geometry; source FRMs are read-only references and are not distributed.",
+  "assets": [
+    {
+      "id": "temple_gate",
+      "source_pattern": "art\\scenery\\TEMPLE01.FRM",
+      "render_mode": "proxy_temple_gate",
+      "pivot": "ground center",
+      "collision_role": "visual only; MAP blockers remain authoritative",
+      "status": "runtime test candidate"
+    },
+    {
+      "id": "temple_stairs",
+      "source_pattern": "art\\scenery\\temple07.frm|temple08.frm",
+      "render_mode": "proxy_stairs",
+      "pivot": "lower run center",
+      "collision_role": "visual only; MAP blockers remain authoritative",
+      "status": "runtime test candidate"
+    },
+    {
+      "id": "temple_facade",
+      "source_pattern": "art\\scenery\\TEMPLE02.FRM..TEMPLE06.FRM",
+      "render_mode": "proxy_temple_mass",
+      "pivot": "source MAP anchor plus family offset",
+      "collision_role": "visual only; MAP blockers remain authoritative",
+      "status": "runtime test candidate"
+    },
+    {
+      "id": "wall_torch",
+      "source_pattern": "art\\scenery\\atorch*.frm",
+      "render_mode": "proxy_torch",
+      "pivot": "ground at source hex",
+      "collision_role": "none",
+      "status": "runtime test candidate"
+    },
+    {
+      "id": "fire_pit",
+      "source_pattern": "art\\scenery\\firepit.frm|firpit*.frm",
+      "render_mode": "proxy_fire_pit",
+      "pivot": "ground center",
+      "collision_role": "MAP blockers remain authoritative",
+      "status": "runtime test candidate"
+    },
+    {
+      "id": "dead_tree",
+      "source_pattern": "art\\scenery\\TREE*.FRM",
+      "render_mode": "proxy_tree",
+      "pivot": "trunk base",
+      "collision_role": "MAP blockers remain authoritative",
+      "status": "runtime test candidate"
+    }
+  ]
+}

@@ -53,14 +53,14 @@ rekordów `block.frm`. Godot zachowuje ten model zamiast przypisywać zgadywane
 
 ## Co jest automatyczne
 
-Godot buduje obecnie zamkniętą siatkę graniczną sumy heksów zajętych przez
-rekordy ścian MAP. Wspólne krawędzie są usuwane, więc sąsiednie komórki nie
-tworzą nakładających się płaszczyzn ani szczelin. Techniczny sprite
-`art\\walls\\block.frm` pozostaje niewidoczny, ale jego heks uczestniczy w
-topologii i kolizji; dzięki temu ARTEMPLE zachowuje bryłę budowli mimo braku
-zwykłych rekordów ścian. Świątynia używa proceduralnego kamienia, a ARCAVES
-osobnego, ciągłego materiału skały bez ceglanego wzoru. Podłogi, ściany, drzwi
-i sceneria z innych elevation są ukrywane,
+Godot buduje obecnie zamkniętą siatkę graniczną sumy widocznych heksów ścian
+MAP. Wspólne krawędzie są usuwane, więc sąsiednie komórki nie tworzą
+nakładających się płaszczyzn ani szczelin. Techniczny
+`art\\walls\\block.frm` uczestniczy wyłącznie w kolizji i nie generuje
+poszarpanej bryły. ARTEMPLE odzyskuje wygląd budowli z rodzinnych modeli
+`TEMPLE01`–`TEMPLE08`. W ARCAVES ściany `temple*` używają ostrego materiału
+bloków kamiennych, a `ca*` osobnego materiału naturalnej skały. Podłogi,
+ściany, drzwi i sceneria z innych elevation są ukrywane,
 gdy postać znajduje się na bieżącym poziomie. Ten kod działa na dowolnym
 `scene-v1`, więc kolejna lokacja nie wymaga osobnego modelowania topologii.
 Jeżeli MAP ma jawne `roof_ids`, powstają z nich sufity. Gdy dachy są puste,
@@ -76,13 +76,22 @@ na płaszczyznę świata przez cztery zmierzone narożniki nieprzezroczystego
 obszaru. ARCAVES wykorzystuje 25 rodzin kafli, a ARTEMPLE 166. Surowe
 izometryczne FRM nie są już domyślnie ustawiane pionowo w świecie FPP, ponieważ
 powodowało to spłaszczone, źle zakotwiczone karty. Jawna lista bezpiecznych
-rodzin zachowuje billboardy tylko dla efektów takich jak pochodnie, ogień i
-wodospad. Drzewa, skały, wyposażenie świątyni, skrzynie, wazy i kości dostają
-stabilne bryły proxy w dokładnych pozycjach MAP; nierozpoznane dekoracje są
+rodzin zachowuje billboard tylko dla wodospadu. Pochodnie i paleniska są
+modelami 3D z uchwytem, misą, kamiennym pierścieniem i emisyjnym płomieniem;
+nie korzystają już z wyciętych obrazów FRM. Drzewa, skały, wyposażenie
+świątyni, skrzynie, wazy i kości dostają stabilne bryły proxy w dokładnych
+pozycjach MAP; nierozpoznane dekoracje są
 ukryte do czasu dodania profilu rodziny. ARCAVES ma 7 itemów: cztery skrzynie
 `chest1.frm`, dwie wazy i kości. Maksymalnie 12 najbliższych źródłowych świateł
 na aktywnym elevation jest włączonych jednocześnie, ze stałą energią bez
 syntetycznego migotania.
+
+Zewnętrzne assety `TEMPLE01`–`TEMPLE08` mają rodzinny profil rekonstrukcji 3D.
+`TEMPLE01` kotwiczy bramę z prawdziwym otworem, `temple07/08` dwa biegi schodów,
+a `TEMPLE02`–`TEMPLE06` bryły i łączniki fasady. Korekta `forward_offset` jest
+częścią profilu assetu i kompensuje izometryczną kotwicę FRM; nie jest ustawiana
+na podstawie save'a. Techniczne `block.frm` nadal zapewniają kolizję, lecz nie
+są już renderowane jako poszarpana fasada.
 
 ## Czego nie da się odzyskać automatycznie 1:1
 

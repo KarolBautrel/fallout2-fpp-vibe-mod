@@ -27,19 +27,14 @@
       "id": "wall_torch",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\atorch",
-      "render_mode": "billboard",
-      "pixels_per_meter": 48.0,
-      "vertical_offset": 0.82,
+      "render_mode": "proxy_torch",
       "light_color": "ffb067"
     },
     {
       "id": "fire_pit",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\firepit.frm",
-      "render_mode": "billboard",
-      "pixels_per_meter": 46.0,
-      "vertical_offset": 0.02,
-      "animate": true,
+      "render_mode": "proxy_fire_pit",
       "light_color": "ff9c4a",
       "light_height_offset": 0.15
     },
@@ -55,9 +50,87 @@
       "id": "outdoor_fire_pit",
       "kind": "scenery",
       "art_path_prefix": "art\\scenery\\firpit",
-      "render_mode": "billboard",
-      "pixels_per_meter": 46.0,
-      "animate": true
+      "render_mode": "proxy_fire_pit",
+      "light_color": "ff9c4a",
+      "light_height_offset": 0.15
+    },
+    {
+      "id": "temple_main_gate",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\temple01.frm",
+      "render_mode": "proxy_temple_gate",
+      "albedo": "4b3b30",
+      "forward_offset": 7.0
+    },
+    {
+      "id": "temple_stairs_lower",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\temple07.frm",
+      "render_mode": "proxy_stairs",
+      "albedo": "4b3b30",
+      "width": 2.45,
+      "height": 0.78,
+      "depth": 1.8
+    },
+    {
+      "id": "temple_stairs_upper",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\temple08.frm",
+      "render_mode": "proxy_stairs",
+      "albedo": "4b3b30",
+      "width": 2.45,
+      "height": 0.78,
+      "depth": 1.8
+    },
+    {
+      "id": "temple_left_rear_mass",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\temple02.frm",
+      "render_mode": "proxy_temple_mass",
+      "albedo": "4b3b30",
+      "width": 4.6,
+      "height": 3.0,
+      "depth": 1.2
+    },
+    {
+      "id": "temple_left_connector",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\temple03.frm",
+      "render_mode": "proxy_temple_mass",
+      "albedo": "4b3b30",
+      "width": 1.45,
+      "height": 3.3,
+      "depth": 8.2
+    },
+    {
+      "id": "temple_relief_mass",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\temple04.frm",
+      "render_mode": "proxy_temple_mass",
+      "albedo": "4b3b30",
+      "width": 5.5,
+      "height": 3.9,
+      "depth": 1.25
+    },
+    {
+      "id": "temple_center_mass",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\temple05.frm",
+      "render_mode": "proxy_temple_mass",
+      "albedo": "4b3b30",
+      "width": 1.6,
+      "height": 3.7,
+      "depth": 1.1
+    },
+    {
+      "id": "temple_right_mass",
+      "kind": "scenery",
+      "art_path_prefix": "art\\scenery\\temple06.frm",
+      "render_mode": "proxy_temple_mass",
+      "albedo": "4b3b30",
+      "width": 6.2,
+      "height": 3.3,
+      "depth": 1.35
     },
     {
       "id": "dead_tree",

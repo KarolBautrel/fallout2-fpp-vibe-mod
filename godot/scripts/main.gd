@@ -3,8 +3,10 @@ extends Node3D
 const Coordinates = preload("res://scripts/fallout_coordinate_space.gd")
 const PlayerController = preload("res://scripts/fallout_player_controller.gd")
 const StateBridge = preload("res://scripts/fallout_state_bridge.gd")
+const ProceduralProps = preload("res://scripts/fallout_procedural_props.gd")
 const StoneWallShader = preload("res://shaders/fallout_stone_wall.gdshader")
 const CaveWallShader = preload("res://shaders/fallout_cave_wall.gdshader")
+const StoneCeilingShader = preload("res://shaders/fallout_stone_ceiling.gdshader")
 
 const DEFAULT_MAP_KEY := "artemple"
 const SCENE_PATHS := {
@@ -491,7 +493,7 @@ func _create_floor_footprint_ceiling(layer: Dictionary, cell_basis: Basis) -> vo
 		return
 
 	var material := ShaderMaterial.new()
-	material.shader = CaveWallShader
+	material.shader = StoneCeilingShader
 	var cell_mesh := BoxMesh.new()
 	cell_mesh.size = Vector3.ONE
 	cell_mesh.material = material
@@ -714,41 +716,61 @@ func _create_map_object_debug_geometry() -> void:
 func _create_wall_topology_mesh(records: Array[Dictionary]) -> void:
 	var records_by_elevation := {}
 	for record in records:
+		if String(_art_profile_for_record(record).get("render_mode", "geometry")) == "hidden":
+			continue
 		var elevation := int(record["elevation"])
 		if not records_by_elevation.has(elevation):
 			records_by_elevation[elevation] = []
 		records_by_elevation[elevation].append(record)
 
 	wall_mesh_face_count = 0
-	wall_mesh_elevation_count = 0
+	wall_mesh_elevation_count = records_by_elevation.size()
 	for elevation_value in records_by_elevation:
 		var elevation := int(elevation_value)
-		var surface := SurfaceTool.new()
-		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-		_add_wall_cell_volume(surface, records_by_elevation[elevation], elevation)
+		var occupied_cells := {}
+		var records_by_material := {}
+		for record_value in records_by_elevation[elevation]:
+			var record: Dictionary = record_value
+			occupied_cells[int(record["hex_index"])] = true
+			var material_key := _wall_material_key(record)
+			if not records_by_material.has(material_key):
+				records_by_material[material_key] = []
+			records_by_material[material_key].append(record)
 
-		surface.generate_normals()
-		var mesh := surface.commit()
-		if mesh == null:
-			continue
-		wall_mesh_elevation_count += 1
-		var material := ShaderMaterial.new()
-		material.shader = (
-			CaveWallShader
-			if _map_stem(String(scene_data["map"]["name"])) == "arcaves"
-			else StoneWallShader
-		)
-		mesh.surface_set_material(0, material)
-		var instance := MeshInstance3D.new()
-		instance.name = "WallTopologyElevation%d" % elevation
-		instance.mesh = mesh
-		_get_elevation_root(elevation).add_child(instance)
+		for material_key_value in records_by_material:
+			var material_key := String(material_key_value)
+			var surface := SurfaceTool.new()
+			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+			_add_wall_cell_volume(
+				surface,
+				records_by_material[material_key],
+				elevation,
+				occupied_cells
+			)
+			surface.generate_normals()
+			var mesh := surface.commit()
+			if mesh == null:
+				continue
+			var material := ShaderMaterial.new()
+			material.shader = StoneWallShader if material_key == "stone" else CaveWallShader
+			mesh.surface_set_material(0, material)
+			var instance := MeshInstance3D.new()
+			instance.name = "WallTopology%sElevation%d" % [material_key.capitalize(), elevation]
+			instance.mesh = mesh
+			_get_elevation_root(elevation).add_child(instance)
+
+
+func _wall_material_key(record: Dictionary) -> String:
+	var art: Dictionary = record.get("art", {})
+	var art_path := String(art.get("path", "")).replace("\\", "/").to_lower()
+	return "stone" if art_path.begins_with("art/walls/temple") else "cave"
 
 
 func _add_wall_cell_volume(
 	surface: SurfaceTool,
 	records: Array,
-	elevation: int
+	elevation: int,
+	occupied_cells: Dictionary
 ) -> void:
 	var records_by_cell := {}
 	for record_value in records:
@@ -760,7 +782,7 @@ func _add_wall_cell_volume(
 		var color := _debug_wall_color(records_by_cell[tile])
 		for direction_index in 6:
 			var neighbor := Coordinates.tile_in_direction(tile, direction_index)
-			if neighbor != tile and records_by_cell.has(neighbor):
+			if neighbor != tile and occupied_cells.has(neighbor):
 				continue
 			var outward := Coordinates.direction_to_world(tile, direction_index)
 			var tangent := Vector3(-outward.z, 0.0, outward.x)
@@ -1082,61 +1104,93 @@ func _create_proxy_visual(
 	var depth := float(profile.get("depth", maxf(width * 0.55, 0.24)))
 	width = float(profile.get("width", width))
 	height = float(profile.get("height", height))
-	var mesh: PrimitiveMesh
-	match render_mode:
-		"proxy_tree":
-			var cylinder := CylinderMesh.new()
-			cylinder.height = maxf(height, 1.8)
-			cylinder.top_radius = maxf(width * 0.10, 0.06)
-			cylinder.bottom_radius = maxf(width * 0.18, 0.12)
-			cylinder.radial_segments = 7
-			mesh = cylinder
-			height = cylinder.height
-		"proxy_rock":
-			var sphere := SphereMesh.new()
-			sphere.radius = 0.5
-			sphere.height = 1.0
-			sphere.radial_segments = 10
-			sphere.rings = 6
-			mesh = sphere
-		"proxy_vase":
-			var vase := CylinderMesh.new()
-			vase.height = maxf(height, 0.55)
-			vase.top_radius = maxf(width * 0.28, 0.10)
-			vase.bottom_radius = maxf(width * 0.42, 0.16)
-			vase.radial_segments = 10
-			mesh = vase
-			height = vase.height
-		_:
-			var box := BoxMesh.new()
-			box.size = Vector3(width, height, depth)
-			mesh = box
-	var material := StandardMaterial3D.new()
-	var source_color := _record_source_color(record, Color("655848"))
-	material.albedo_color = source_color.lightened(0.08)
-	material.roughness = 0.9
-	mesh.material = material
+	var source_color := (
+		Color(String(profile["albedo"]))
+		if profile.has("albedo")
+		else _record_source_color(record, Color("655848"))
+	)
 	var instance_id := int(record["instance_id"])
-	var elevation := int(record["elevation"])
+	var material: Material
+	var selection_tint := true
 	var instance: Node3D
-	if render_mode == "proxy_tree":
-		instance = _create_tree_proxy(mesh, material, height, width)
-	else:
-		var mesh_instance := MeshInstance3D.new()
-		mesh_instance.mesh = mesh
-		mesh_instance.position.y = height * 0.5
-		if render_mode == "proxy_rock":
-			mesh_instance.scale = Vector3(
-				maxf(width, 0.35),
-				maxf(height, 0.25),
-				maxf(depth, 0.35)
-			)
-		instance = mesh_instance
+	match render_mode:
+		"proxy_fire_pit":
+			instance = ProceduralProps.create_fire_pit(source_color)
+			material = _create_standard_proxy_material(source_color)
+			selection_tint = false
+		"proxy_torch":
+			instance = ProceduralProps.create_wall_torch(source_color)
+			material = _create_standard_proxy_material(source_color)
+			selection_tint = false
+		"proxy_stairs":
+			material = _create_stone_proxy_material(source_color)
+			instance = ProceduralProps.create_stairs(material, width, depth, height)
+			selection_tint = false
+		"proxy_temple_gate":
+			material = _create_stone_proxy_material(source_color)
+			instance = ProceduralProps.create_temple_gate(material)
+			selection_tint = false
+		"proxy_temple_mass":
+			material = _create_stone_proxy_material(source_color)
+			instance = ProceduralProps.create_temple_mass(material, width, height, depth)
+			selection_tint = false
+		_:
+			material = _create_standard_proxy_material(source_color)
+			var mesh: PrimitiveMesh
+			match render_mode:
+				"proxy_tree":
+					var cylinder := CylinderMesh.new()
+					cylinder.height = maxf(height, 1.8)
+					cylinder.top_radius = maxf(width * 0.10, 0.06)
+					cylinder.bottom_radius = maxf(width * 0.18, 0.12)
+					cylinder.radial_segments = 7
+					mesh = cylinder
+					height = cylinder.height
+				"proxy_rock":
+					var sphere := SphereMesh.new()
+					sphere.radius = 0.5
+					sphere.height = 1.0
+					sphere.radial_segments = 10
+					sphere.rings = 6
+					mesh = sphere
+				"proxy_vase":
+					var vase := CylinderMesh.new()
+					vase.height = maxf(height, 0.55)
+					vase.top_radius = maxf(width * 0.28, 0.10)
+					vase.bottom_radius = maxf(width * 0.42, 0.16)
+					vase.radial_segments = 10
+					mesh = vase
+					height = vase.height
+				_:
+					var box := BoxMesh.new()
+					box.size = Vector3(width, height, depth)
+					mesh = box
+			mesh.material = material
+			if render_mode == "proxy_tree":
+				instance = _create_tree_proxy(mesh, material, height, width, instance_id)
+			else:
+				var mesh_instance := MeshInstance3D.new()
+				mesh_instance.mesh = mesh
+				mesh_instance.position.y = height * 0.5
+				if render_mode == "proxy_rock":
+					mesh_instance.scale = Vector3(
+						maxf(width, 0.35),
+						maxf(height, 0.25),
+						maxf(depth, 0.35)
+					)
+				instance = mesh_instance
+	var elevation := int(record["elevation"])
 	instance.name = "Proxy%d_%s" % [instance_id, render_mode]
-	instance.position = Coordinates.hex_index_to_world(int(record["hex_index"]), elevation)
 	var direction := Coordinates.direction_to_world(
 		int(record["hex_index"]),
 		int(record.get("rotation", 0))
+	)
+	var right := Vector3(direction.z, 0.0, -direction.x)
+	instance.position = (
+		Coordinates.hex_index_to_world(int(record["hex_index"]), elevation)
+		+ direction * float(profile.get("forward_offset", 0.0))
+		+ right * float(profile.get("right_offset", 0.0))
+		+ Vector3.UP * float(profile.get("vertical_offset", 0.0))
 	)
 	instance.rotation.y = atan2(-direction.x, -direction.z)
 	_get_elevation_root(elevation).add_child(instance)
@@ -1144,17 +1198,33 @@ func _create_proxy_visual(
 		"kind": "prop",
 		"instance": instance,
 		"material": material,
+		"selection_tint": selection_tint,
 	}
-	object_instance_colors[instance_id] = material.albedo_color
+	object_instance_colors[instance_id] = source_color.lightened(0.08)
 	_create_prop_light(record, profile, instance.position)
 	return true
 
 
+func _create_standard_proxy_material(source_color: Color) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = source_color.lightened(0.08)
+	material.roughness = 0.9
+	return material
+
+
+func _create_stone_proxy_material(source_color: Color) -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = StoneWallShader
+	material.set_shader_parameter("material_tint", source_color.lightened(0.24))
+	return material
+
+
 func _create_tree_proxy(
 	trunk_mesh: PrimitiveMesh,
-	material: StandardMaterial3D,
+	material: Material,
 	height: float,
-	width: float
+	width: float,
+	seed: int
 ) -> Node3D:
 	var root := Node3D.new()
 	var trunk := MeshInstance3D.new()
@@ -1162,10 +1232,12 @@ func _create_tree_proxy(
 	trunk.mesh = trunk_mesh
 	trunk.position.y = height * 0.5
 	root.add_child(trunk)
-	for branch_index in 3:
-		var angle := float(branch_index) * TAU / 3.0 + 0.35
-		var direction := Vector3(cos(angle) * 0.62, 0.78, sin(angle) * 0.62).normalized()
-		var branch_length := height * (0.28 + float(branch_index) * 0.035)
+	var phase := fmod(float(seed % 97) * 0.071, TAU)
+	for branch_index in 5:
+		var angle := float(branch_index) * TAU / 5.0 + phase
+		var lift := 0.60 + 0.08 * float((seed + branch_index) % 3)
+		var direction := Vector3(cos(angle) * 0.72, lift, sin(angle) * 0.72).normalized()
+		var branch_length := height * (0.22 + float((seed + branch_index * 3) % 5) * 0.025)
 		var branch_mesh := CylinderMesh.new()
 		branch_mesh.height = branch_length
 		branch_mesh.top_radius = maxf(width * 0.035, 0.025)
@@ -1175,7 +1247,7 @@ func _create_tree_proxy(
 		var branch := MeshInstance3D.new()
 		branch.name = "Branch%d" % branch_index
 		branch.mesh = branch_mesh
-		var base := Vector3.UP * height * (0.48 + float(branch_index) * 0.10)
+		var base := Vector3.UP * height * (0.42 + float(branch_index) * 0.095)
 		branch.position = base + direction * branch_length * 0.5
 		branch.basis = Basis(Quaternion(Vector3.UP, direction))
 		root.add_child(branch)
@@ -1370,7 +1442,10 @@ func _count_wall_elevations() -> int:
 	var elevations := {}
 	for record_value in scene_data["objects"]["records"]:
 		var record: Dictionary = record_value
-		if String(record.get("kind", "")) == "wall":
+		if (
+			String(record.get("kind", "")) == "wall"
+			and String(_art_profile_for_record(record).get("render_mode", "geometry")) != "hidden"
+		):
 			elevations[int(record["elevation"])] = true
 	return elevations.size()
 
@@ -2011,12 +2086,17 @@ func _refresh_object_colors() -> void:
 		var visual: Dictionary = object_visuals[instance_id]
 		var color: Color = object_instance_colors[instance_id]
 		if String(visual.get("kind", "multimesh")) == "prop":
+			if not bool(visual.get("selection_tint", true)):
+				continue
 			if object_states.has(instance_id) and bool(object_states[instance_id]["activated"]):
 				color = Color("f4d35e")
 			elif int(instance_id) == selected_id:
 				color = Color("8ff5ff")
-			var prop_material: StandardMaterial3D = visual["material"]
-			prop_material.albedo_color = color
+			var prop_material: Material = visual["material"]
+			if prop_material is StandardMaterial3D:
+				prop_material.albedo_color = color
+			elif prop_material is ShaderMaterial:
+				prop_material.set_shader_parameter("material_tint", color)
 			continue
 		var transform: Transform3D = visual["base_transform"]
 		if (
@@ -2722,7 +2802,7 @@ func _write_evidence() -> void:
 			"wall_mesh_elevations": wall_mesh_elevation_count,
 			"wall_profile_matches": wall_profile_match_count,
 			"wall_material": (
-				"procedural_cave_rock_from_source_palette"
+				"mixed_procedural_temple_stone_and_cave_rock"
 				if _map_stem(String(scene_data["map"]["name"])) == "arcaves"
 				else "procedural_stone_from_source_palette"
 			),

@@ -109,22 +109,27 @@ C:\Users\karol\Documents\vibe-modding\fallout2-fpp-vibe-mod
 - cztery drzwi ARCAVES mają źródłowe panele FRM; probe potwierdza przejście na
   klatkę `18` po stanie `open`, równolegle z wyłączeniem collidera;
 - okienkowy benchmark ARCAVES/FPP po rozgrzaniu osiągnął średnio `60,29 FPS`
-  przez 180 klatek przy 14 332 trójkątach ścian, 13 361 komórkach sufitu,
+  przez 180 klatek przy 14 522 trójkątach ścian, 13 361 komórkach sufitu,
   113 renderowanych propsach i budżecie 12 aktywnych świateł. Dowód:
   `artifacts/godot-render-performance.json`.
 - podłogi są generowane z prawdziwych FRM typu `tiles`: ARCAVES ma 25 rodzin,
   a ARTEMPLE 166. Kalibracja narożników obrazu `80 x 36` usuwa czarne szczeliny
   pomiędzy kaflami;
-- renderer 2.5D renderuje tylko jawnie bezpieczne billboardy efektów oraz
-  stabilne bryły proxy dla znanych rodzin scenerii i 7 itemów ARCAVES. Itemy
+- renderer 2.5D zachowuje billboard tylko dla jawnie zatwierdzonego wodospadu.
+  Pochodnie i paleniska są proceduralnymi modelami 3D, a pozostałe znane
+  rodziny używają stabilnych brył proxy; ARCAVES nadal zawiera 7 itemów. Itemy
   ARCAVES obejmują cztery skrzynie `chest1.frm`, dwie wazy i kości. Sprite
   `block.frm` pozostaje niewidzialny;
   MAP wskazuje 76 osobnych emiterów światła w ARCAVES i 2 w ARTEMPLE;
-- ściany są zamkniętą powierzchnią graniczną sumy zajętych heksów MAP; wspólne
-  krawędzie znikają, a techniczne rekordy `block.frm` uzupełniają bryłę
-  ARTEMPLE bez renderowania swojego sprite'a;
+- widoczne ściany są zamkniętą powierzchnią graniczną sumy zajętych heksów MAP;
+  wspólne krawędzie znikają, a techniczne rekordy `block.frm` pozostają tylko
+  w autorytatywnej kolizji;
 - ARTEMPLE jest traktowane jako lokacja zewnętrzna bez automatycznego sufitu.
   ARCAVES nadal ma sufit `floor_footprint` bez szczelin;
+- `TEMPLE01`–`TEMPLE08` są mapowane jako rodzina na bramę, dwa biegi schodów,
+  fasadę i łączniki. Techniczne rekordy ścian zachowują kolizję, ale nie tworzą
+  już widocznej poszarpanej bryły na zewnątrz. Benchmark ARTEMPLE/FPP wynosi
+  `59,95 FPS`;
 - tylko aktywne elevation ma włączoną fizykę. Naprawia to promień ISO, który
   wcześniej mógł trafić w niewidzialną podłogę wyższego poziomu;
 
